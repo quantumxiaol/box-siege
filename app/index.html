@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方块围城 BOX SIEGE · 同键盘双人打僵尸</title>
+<meta name="description" content="方块风俯视角打僵尸小游戏：单人求生 / 同键盘双人合作 / 双人对战，纯前端静态页面，GitHub Pages 即开即玩。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="cabinet">
+    <header class="marquee">
+      <span class="logo-pixel">BOX&nbsp;SIEGE</span>
+      <h1>方块围城</h1>
+      <span class="tag">同键盘双人 · 方块风打僵尸</span>
+    </header>
+
+    <div class="screen-wrap" id="screenWrap">
+      <canvas id="game" width="960" height="600"></canvas>
+
+      <div id="menu" class="overlay">
+        <div class="panel">
+          <div class="game-title">方块围城</div>
+          <div class="game-sub">BOX SIEGE · 房间生存射击</div>
+
+          <div class="menu-section">
+            <div class="section-label">— 选择模式 —</div>
+            <div class="btn-row">
+              <button class="mbtn sel" data-mode="single">单人求生</button>
+              <button class="mbtn" data-mode="coop">双人合作</button>
+              <button class="mbtn" data-mode="versus">双人对战</button>
+            </div>
+            <div class="mode-note" id="modeNote">独自顶住一波波僵尸，活得越久越强。</div>
+          </div>
+
+          <div class="menu-section">
+            <div class="section-label">— 选择房间 —</div>
+            <div class="btn-row">
+              <button class="mapbtn sel" data-map="0">训练场</button>
+              <button class="mapbtn" data-map="1">回廊</button>
+              <button class="mapbtn" data-map="2">十字阵</button>
+            </div>
+          </div>
+
+          <button id="startBtn" class="start-btn">▶ 开 始 游 戏</button>
+
+          <div class="controls-grid">
+            <div class="ctl">
+              <h3>玩家一</h3>
+              <p><b>方向键</b> 移动　<b>/</b> 射击·使用　<b>, .</b> 换武器</p>
+            </div>
+            <div class="ctl">
+              <h3>玩家二</h3>
+              <p><b>W A S D</b> 移动　<b>空格</b> 射击·使用　<b>Q E</b> 换武器</p>
+            </div>
+          </div>
+
+          <div class="fineprint">击杀攒连击升级，逐级解锁：手枪 → 乌兹 → 霰弹枪 → 手雷 → 地雷 → 火箭筒 → 油桶</div>
+        </div>
+      </div>
+    </div>
+
+    <footer class="hintbar">
+      <span><b>P</b> 暂停</span><span><b>M</b> 静音</span><span><b>双击画面</b> 全屏</span><span><b>Esc</b> 回菜单</span><span>单人模式两套按键通用</span>
+    </footer>
+  </div>
+
+  <div id="errbox"></div>
+  <script src="game.js"></script>
+</body>
+</html>
