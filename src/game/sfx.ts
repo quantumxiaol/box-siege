@@ -61,6 +61,9 @@ class SfxImpl {
   explode()  { this.noise(0.55, 0.34, 320); this.tone(90, 30, 0.5, 'sine', 0.30); }
   zdie()     { this.noise(0.10, 0.14, 700, 'bandpass'); this.tone(160, 60, 0.09, 'sawtooth', 0.07); }
   zattack()  { this.tone(140, 70, 0.2, 'sawtooth', 0.09); }
+  devil()    { this.tone(880, 220, 0.35, 'sawtooth', 0.08); this.tone(660, 180, 0.3, 'square', 0.05, 0.05); }
+  fireball() { this.noise(0.22, 0.14, 1600, 'bandpass'); this.tone(320, 120, 0.18, 'sawtooth', 0.08); }
+  fhit()     { this.noise(0.25, 0.18, 500); this.tone(120, 50, 0.22, 'sine', 0.12); }
   hurt()     { this.tone(200, 90, 0.16, 'sawtooth', 0.14); this.noise(0.08, 0.10, 1200, 'highpass'); }
   pickup()   { this.tone(660, 660, 0.07, 'sine', 0.10); this.tone(990, 990, 0.09, 'sine', 0.10, 0.07); }
   newWeap()  { [523, 659, 784, 1047].forEach((f, i) => this.tone(f, f, 0.1, 'square', 0.09, i * 0.08)); }

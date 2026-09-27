@@ -8,6 +8,8 @@ const DEPTH_SHADOW = 4;
 
 /** 僵尸攻击前摇（秒）：蓄力动作完成后才结算伤害 */
 export const ZOMBIE_WINDUP = 0.38;
+/** 恶魔吐火球前摇（秒） */
+export const DEVIL_WINDUP = 0.5;
 
 /** Phaser 4：填充式染色 = setTint + setTintMode(FILL) */
 function flashOn(img: Phaser.GameObjects.Image, color: number) {
@@ -43,6 +45,8 @@ export class Player {
   cur = 0;
   ammo: Record<string, number> = {};
   cd = 0; hurtT = 0; respawnT = 0; invulnT = 0;
+  /** 距上次受伤的时间（简单难度回血用） */
+  regenT = 0;
   frags = 0; deaths = 0;
   walkT = 0; muzzle = 0;
 
@@ -163,6 +167,82 @@ export class Zombie {
 }
 
 export type BulletKind = 'bullet' | 'pellet' | 'rocket';
+
+/** 恶魔：飞越障碍、远程吐火球（AI 在 Game 场景，字段自理） */
+export class Devil {
+  x: number; y: number;
+  face = 0;
+  r = 13;
+  hp = 140;
+  maxHp = 140;
+  dead = false;
+  score = 500;
+  flashT = 0;
+  hoverT = rand(0, 9);
+  /** 距离下一次吐火球 */
+  shootT = 2;
+  /** 吐火球前摇剩余时间 */
+  windT = 0;
+
+  private curTex = '';
+  img: Phaser.GameObjects.Image;
+  shadow: Phaser.GameObjects.Image;
+
+  constructor(scene: Phaser.Scene, x: number, y: number) {
+    this.x = x; this.y = y;
+    this.shadow = scene.add.image(x, y + 9, TEX.shadow).setDepth(DEPTH_SHADOW).setAlpha(0.7);
+    this.img = scene.add.image(x, y, 'chr_devil_f').setScale(0.2);
+    this.sync();
+  }
+
+  sync() {
+    const { pose, flip } = poseFor(this.face);
+    const tex = `chr_devil_${pose}`;
+    if (tex !== this.curTex) {
+      this.img.setTexture(tex);
+      this.curTex = tex;
+    }
+    this.img.setFlipX(flip);
+    // 悬浮：贴地阴影不动，身体上下浮动，遮挡层级略高于地面单位
+    const hover = Math.sin(this.hoverT * 3) * 2.5 - 7;
+    this.img.setPosition(this.x, this.y + hover).setDepth(this.y + 30);
+    if (this.img.scaleX >= 0.99) {
+      if (this.windT > 0) {
+        const k = Math.sin((1 - this.windT / DEVIL_WINDUP) * Math.PI);
+        this.img.setScale(1 + 0.14 * k, 1 - 0.14 * k);
+      } else {
+        this.img.setScale(1, 1);
+      }
+    }
+    if (this.flashT > 0) flashOn(this.img, 0xffffff);
+    else if (this.windT > 0) this.img.setTint(0xffe080);
+    else flashOff(this.img);
+    this.shadow.setPosition(this.x, this.y + 9).setDepth(DEPTH_SHADOW);
+  }
+
+  destroy() {
+    this.img.destroy(); this.shadow.destroy();
+  }
+}
+
+/** 恶魔吐出的火球（直线飞行，命中即小范围爆炸，不分敌我） */
+export class Fireball {
+  dead = false;
+  life = 3;
+  img: Phaser.GameObjects.Image;
+  constructor(
+    scene: Phaser.Scene,
+    public x: number, public y: number,
+    public vx: number, public vy: number,
+  ) {
+    this.img = scene.add.image(x, y, TEX.fireball).setRotation(Math.atan2(vy, vx));
+    this.img.setDepth(y + 20);
+  }
+  sync() {
+    this.img.setPosition(this.x, this.y).setDepth(this.y + 20);
+  }
+  destroy() { this.img.destroy(); }
+}
 
 export class Bullet {
   dead = false;

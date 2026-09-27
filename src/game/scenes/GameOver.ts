@@ -1,10 +1,11 @@
 import * as Phaser from 'phaser';
-import { W, H, C, css, GameMode } from '../config';
+import { W, H, C, css, GameMode, Difficulty } from '../config';
 import { Sfx } from '../sfx';
 
 export interface GameOverData {
   mode?: GameMode;
   mapIdx?: number;
+  difficulty?: Difficulty;
   score?: number;
   kills?: number;
   time?: number;
@@ -19,6 +20,7 @@ export class GameOver extends Phaser.Scene {
   create(data: GameOverData) {
     const mode = data.mode ?? 'single';
     const mapIdx = data.mapIdx ?? 0;
+    const diff = data.difficulty ?? 'hard';
     const score = data.score ?? 0;
     const kills = data.kills ?? 0;
     const time = data.time ?? 0;
@@ -42,6 +44,7 @@ export class GameOver extends Phaser.Scene {
       `得分  ${score}`,
       `击杀  ${kills}`,
       `存活时间  ${mm}:${String(ss).padStart(2, '0')}`,
+      `难度  ${diff === 'easy' ? '简单' : '困难'}`,
     ];
     this.add.text(cx, 260, lines, {
       fontFamily: '"PingFang SC", "Microsoft YaHei", sans-serif',
@@ -59,13 +62,13 @@ export class GameOver extends Phaser.Scene {
     }).setOrigin(0.5);
 
     this.makeButton(cx - 120, 430, 200, 52, '再来一局', () => {
-      this.scene.start('Game', { mode, mapIdx });
+      this.scene.start('Game', { mode, mapIdx, difficulty: diff });
     });
     this.makeButton(cx + 120, 430, 200, 52, '回菜单', () => {
       this.scene.start('MainMenu');
     });
 
-    this.input.keyboard?.on('keydown-ENTER', () => this.scene.start('Game', { mode, mapIdx }));
+    this.input.keyboard?.on('keydown-ENTER', () => this.scene.start('Game', { mode, mapIdx, difficulty: diff }));
     this.input.keyboard?.on('keydown-ESC', () => this.scene.start('MainMenu'));
   }
 

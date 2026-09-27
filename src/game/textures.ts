@@ -12,6 +12,7 @@ export const TEX = {
   bullet: 'obj_bullet',
   pellet: 'obj_pellet',
   muzzle: 'fx_muzzle',
+  fireball: 'fx_fireball',
   crateAmmo: 'obj_crate_ammo',
   crateMed: 'obj_crate_med',
   blood0: 'fx_blood0',
@@ -42,14 +43,25 @@ type Pose = 'f' | 'b' | 's';
  * 2.5D 三视图方块头角色：正面 / 背面 / 侧面（朝右，向左用 flipX）。
  * 在 64×64 坐标系内设计，按 s 整体缩放（brute 1.45、fast 0.92）。
  */
-function drawCharPose(g: Phaser.GameObjects.Graphics, s: number, pose: Pose, cols: CharCols, zombie: boolean) {
+function drawCharPose(g: Phaser.GameObjects.Graphics, s: number, pose: Pose, cols: CharCols, kind: 'player' | 'zombie' | 'devil') {
   const X = (v: number) => v * s;
   const FEET = 0x2a2a30;
   const lw = 2.2 * s;
+  const zombie = kind !== 'player';
+  const devil = kind === 'devil';
+  const wing = (a: number, b: number, c: number, d: number, e: number, f: number) => {
+    g.fillStyle(0x4a1418, 1);
+    g.fillTriangle(a, b, c, d, e, f);
+  };
+  const HORN = 0x3a1014;
 
   if (pose === 'f') {
     RR(g, X(26), X(49), X(5), X(6), X(1.5), FEET);
     RR(g, X(34), X(49), X(5), X(6), X(1.5), FEET);
+    if (devil) {
+      wing(X(16), X(36), X(25), X(38), X(18), X(47));
+      wing(X(48), X(36), X(39), X(38), X(46), X(47));
+    }
     RR(g, X(24), X(33), X(16), X(16), X(4), cols.body, lw, cols.outline);
     if (zombie) {
       RR(g, X(19), X(34), X(7), X(15), X(3), cols.head, lw, cols.outline);
@@ -73,9 +85,18 @@ function drawCharPose(g: Phaser.GameObjects.Graphics, s: number, pose: Pose, col
       g.fillStyle(cols.outline, 0.85);
       g.fillRect(X(27), X(28.5), X(10), X(2.2));
     }
+    if (devil) {
+      g.fillStyle(HORN, 1);
+      g.fillTriangle(X(22), X(9), X(27), X(9), X(24.5), X(0));
+      g.fillTriangle(X(37), X(9), X(42), X(9), X(39.5), X(0));
+    }
   } else if (pose === 'b') {
     RR(g, X(26), X(49), X(5), X(6), X(1.5), FEET);
     RR(g, X(34), X(49), X(5), X(6), X(1.5), FEET);
+    if (devil) {
+      wing(X(13), X(30), X(25), X(36), X(16), X(50));
+      wing(X(51), X(30), X(39), X(36), X(48), X(50));
+    }
     RR(g, X(24), X(33), X(16), X(16), X(4), cols.body, lw, cols.outline);
     if (zombie) {
       RR(g, X(19), X(35), X(6), X(12), X(3), cols.head, lw, cols.outline);
@@ -88,9 +109,15 @@ function drawCharPose(g: Phaser.GameObjects.Graphics, s: number, pose: Pose, col
     g.fillRoundedRect(X(22), X(10), X(20), X(4), X(2));
     g.fillStyle(cols.face, 0.9);
     g.fillRoundedRect(X(20), X(26), X(24), X(5), X(2));
+    if (devil) {
+      g.fillStyle(HORN, 1);
+      g.fillTriangle(X(22), X(9), X(27), X(9), X(24.5), X(0));
+      g.fillTriangle(X(37), X(9), X(42), X(9), X(39.5), X(0));
+    }
   } else {
     RR(g, X(23), X(49), X(6), X(6), X(1.5), FEET);
     RR(g, X(34), X(47), X(6), X(6), X(1.5), FEET);
+    if (devil) wing(X(22), X(30), X(34), X(36), X(24), X(48));
     RR(g, X(25), X(33), X(14), X(16), X(4), cols.body, lw, cols.outline);
     if (zombie) {
       RR(g, X(33), X(34), X(17), X(6), X(3), cols.head, lw, cols.outline);
@@ -112,6 +139,10 @@ function drawCharPose(g: Phaser.GameObjects.Graphics, s: number, pose: Pose, col
     if (zombie) {
       g.fillStyle(cols.outline, 0.85);
       g.fillRect(X(40), X(28.5), X(6), X(2.2));
+    }
+    if (devil) {
+      g.fillStyle(HORN, 1);
+      g.fillTriangle(X(36), X(9), X(41), X(9), X(38.5), X(0));
     }
   }
 }
@@ -189,16 +220,17 @@ export function generateTextures(scene: Phaser.Scene) {
   const g = scene.add.graphics();
 
   // ---- 角色（2.5D 三视图） ----
-  const CHARS: [string, number, CharCols, boolean][] = [
-    ['chr_p1', 1, { head: C.p1, body: C.p1dark, face: C.skin, eye: 0x22222a, outline: 0x2a1c10 }, false],
-    ['chr_p2', 1, { head: C.p2, body: C.p2dark, face: C.skin, eye: 0x22222a, outline: 0x14202e }, false],
-    ['chr_zombie', 1, { head: C.zombie, body: C.zombieDk, face: C.zombieDk, eye: 0xc23a1e, outline: 0x2e3a1e }, true],
-    ['chr_fast', 0.92, { head: C.fast, body: C.fastDk, face: C.fastDk, eye: 0xffd038, outline: 0x3a1c10 }, true],
-    ['chr_brute', 1.45, { head: C.brute, body: C.bruteDk, face: C.bruteDk, eye: 0xc23a1e, outline: 0x222e18 }, true],
+  const CHARS: [string, number, CharCols, 'player' | 'zombie' | 'devil'][] = [
+    ['chr_p1', 1, { head: C.p1, body: C.p1dark, face: C.skin, eye: 0x22222a, outline: 0x2a1c10 }, 'player'],
+    ['chr_p2', 1, { head: C.p2, body: C.p2dark, face: C.skin, eye: 0x22222a, outline: 0x14202e }, 'player'],
+    ['chr_zombie', 1, { head: C.zombie, body: C.zombieDk, face: C.zombieDk, eye: 0xc23a1e, outline: 0x2e3a1e }, 'zombie'],
+    ['chr_fast', 0.92, { head: C.fast, body: C.fastDk, face: C.fastDk, eye: 0xffd038, outline: 0x3a1c10 }, 'zombie'],
+    ['chr_brute', 1.45, { head: C.brute, body: C.bruteDk, face: C.bruteDk, eye: 0xc23a1e, outline: 0x222e18 }, 'zombie'],
+    ['chr_devil', 1.05, { head: 0x9e3535, body: 0x6e2026, face: 0x6e2026, eye: 0xffd838, outline: 0x3a1014 }, 'devil'],
   ];
-  for (const [set, s, cols, zombie] of CHARS) {
+  for (const [set, s, cols, kind] of CHARS) {
     for (const pose of ['f', 'b', 's'] as const) {
-      drawCharPose(g, s, pose, cols, zombie);
+      drawCharPose(g, s, pose, cols, kind);
       g.generateTexture(`${set}_${pose}`, Math.ceil(64 * s), Math.ceil(64 * s));
       g.clear();
     }
@@ -273,6 +305,15 @@ export function generateTextures(scene: Phaser.Scene) {
   g.fillStyle(0xf7a026, 0.9);
   g.fillCircle(13, 10, 3.4);
   g.generateTexture(TEX.muzzle, 28, 20); g.clear();
+
+  // ---- 火球（恶魔弹丸） ----
+  g.fillStyle(0xc23a1e, 0.9);
+  g.fillCircle(9, 9, 8);
+  g.fillStyle(0xf7a026, 1);
+  g.fillCircle(9, 9, 5.5);
+  g.fillStyle(0xfff3d0, 1);
+  g.fillCircle(9, 9, 2.6);
+  g.generateTexture(TEX.fireball, 18, 18); g.clear();
 
   // ---- 补给箱 ----
   g.fillStyle(0x8a6f2e, 1);

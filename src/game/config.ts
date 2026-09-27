@@ -44,3 +44,4 @@ export const C = {
 export const css = (c: number) => '#' + c.toString(16).padStart(6, '0');
 
 export type GameMode = 'single' | 'coop' | 'versus';
+export type Difficulty = 'easy' | 'hard';

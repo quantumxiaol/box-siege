@@ -1,23 +1,25 @@
 import * as Phaser from 'phaser';
-import { W, H, WALL_T, C, css, TAU, rand, clamp, dist2, pick, GameMode } from '../config';
+import { W, H, WALL_T, C, css, TAU, rand, clamp, dist2, pick, GameMode, Difficulty } from '../config';
 import { MAPS, SPAWN_GATES, MapDef } from '../data/maps';
 import { WEAPONS, UNLOCK_AT } from '../data/weapons';
 import { TEX, BLOOD_VARIANTS, drawBlockSide, drawBlockTop, ensureBlockTopTexture } from '../textures';
 import { collideWalls, hitsWall } from '../collision';
 import { Input, CTRL_P1, CTRL_P2, bindInputLifecycle } from '../input';
 import { Sfx } from '../sfx';
-import { Player, Zombie, Bullet, Grenade, Mine, Barrel, Pickup, ZombieType, ZOMBIE_WINDUP } from '../objects/entities';
+import { Player, Zombie, Bullet, Grenade, Mine, Barrel, Pickup, ZombieType, ZOMBIE_WINDUP, Devil, Fireball, DEVIL_WINDUP } from '../objects/entities';
 import { ParticlePool, Toasts } from '../objects/fx';
 
 export interface GameSceneData {
   mode?: GameMode;
   mapIdx?: number;
+  difficulty?: Difficulty;
 }
 
 type State = 'countdown' | 'play' | 'paused' | 'over';
 
 export class Game extends Phaser.Scene {
   private mode: GameMode = 'single';
+  private diff: Difficulty = 'hard';
   private mapIdx = 0;
   private map!: MapDef;
   private state: State = 'countdown';
@@ -27,6 +29,8 @@ export class Game extends Phaser.Scene {
 
   private players: Player[] = [];
   private zombies: Zombie[] = [];
+  private devils: Devil[] = [];
+  private fireballs: Fireball[] = [];
   private bullets: Bullet[] = [];
   private grenades: Grenade[] = [];
   private mines: Mine[] = [];
@@ -40,10 +44,14 @@ export class Game extends Phaser.Scene {
   private comboT = 0;
   private mult = 1;
   private spawnT = 1.2;
+  private wave = 1;
+  private crateT = 8;
+  private spotT = 0.1;
   private winner = -1;
   private overT = 0;
   private seenFast = false;
   private seenBrute = false;
+  private seenDevil = false;
 
   private keyInput!: Input;
   private particles!: ParticlePool;
@@ -53,6 +61,7 @@ export class Game extends Phaser.Scene {
 
   private scoreText!: Phaser.GameObjects.Text;
   private multText!: Phaser.GameObjects.Text;
+  private waveText!: Phaser.GameObjects.Text;
   private veil!: Phaser.GameObjects.Rectangle;
   private centerText!: Phaser.GameObjects.Text;
   private subText!: Phaser.GameObjects.Text;
@@ -64,6 +73,7 @@ export class Game extends Phaser.Scene {
 
   create(data: GameSceneData) {
     this.mode = data.mode ?? 'single';
+    this.diff = data.difficulty ?? 'hard';
     this.mapIdx = data.mapIdx ?? 0;
     this.map = MAPS[this.mapIdx];
     this.state = 'countdown';
@@ -72,10 +82,15 @@ export class Game extends Phaser.Scene {
     this.t = 0;
     this.score = 0; this.kills = 0; this.combo = 0; this.comboT = 0; this.mult = 1;
     this.spawnT = 1.2;
+    this.wave = 1;
+    this.crateT = 8;
+    this.spotT = 0.1;
     this.winner = -1;
     this.seenFast = false;
     this.seenBrute = false;
+    this.seenDevil = false;
     this.players = []; this.zombies = []; this.bullets = [];
+    this.devils = []; this.fireballs = [];
     this.grenades = []; this.mines = []; this.barrels = []; this.pickups = [];
     this.delayed = [];
 
@@ -97,6 +112,9 @@ export class Game extends Phaser.Scene {
       const p2 = new Player(this, 1, sp.versus[1][0], sp.versus[1][1]); p2.face = Math.PI;
       this.players = [p1, p2];
     }
+    if (this.diff === 'easy') {
+      for (const p of this.players) p.speed = 185;
+    }
     this.barrels = this.map.barrels.map(b => new Barrel(this, b.x, b.y));
 
     this.buildHUD();
@@ -112,7 +130,7 @@ export class Game extends Phaser.Scene {
     this.keyInput.onFullscreen = () => this.scale.toggleFullscreen();
     this.keyInput.onEscape = () => this.scene.start('MainMenu');
 
-    this.toasts.show(this.map.name, '#FFFFFF');
+    this.toasts.show(`${this.map.name} · ${this.diff === 'easy' ? '简单' : '困难'}`, '#FFFFFF');
 
     // 调试句柄（方便排查/二开）
     (window as unknown as { __scene: Game }).__scene = this;
@@ -189,6 +207,14 @@ export class Game extends Phaser.Scene {
       stroke: '#1a1a1a',
       strokeThickness: 4,
     }).setOrigin(0.5, 0).setDepth(1000);
+    this.waveText = this.add.text(WALL_T + 10, 12, '第 1 波', {
+      fontFamily: '"PingFang SC", "Microsoft YaHei", sans-serif',
+      fontSize: '15px',
+      fontStyle: 'bold',
+      color: css(C.amber),
+      stroke: '#1a1a1a',
+      strokeThickness: 4,
+    }).setOrigin(0, 0).setDepth(1000);
 
     this.hud = this.players.map(p => {
       const label = this.add.text(p.x, p.y - 40, '', {
@@ -226,6 +252,7 @@ export class Game extends Phaser.Scene {
     this.scoreText.setText(String(this.score).padStart(13, '0'));
     this.multText.setText(this.mult > 1 ? `x${this.mult}` : '');
     this.multText.setScale(1 + (this.mult - 1) * 0.03);
+    this.waveText.setText(`第 ${this.wave} 波`);
     for (const h of this.hud) {
       const p = h.p;
       if (!p.alive) {
@@ -288,6 +315,16 @@ export class Game extends Phaser.Scene {
         z.x = c.x; z.y = c.y;
       }
     }
+    for (const dv of this.devils) {
+      if (dv.dead) continue;
+      const d = Math.sqrt(dist2(x, y, dv.x, dv.y));
+      if (d < r + dv.r) {
+        this.hurtDevil(dv, dmg * clamp(1 - (d / (r + dv.r)) * 0.7, 0.25, 1), owner);
+        const a = Math.atan2(dv.y - y, dv.x - x);
+        dv.x = clamp(dv.x + Math.cos(a) * 14, WALL_T + dv.r, W - WALL_T - dv.r);
+        dv.y = clamp(dv.y + Math.sin(a) * 14, WALL_T + dv.r, H - WALL_T - dv.r);
+      }
+    }
     for (const p of this.players) {
       if (!p.alive) continue;
       const d = Math.sqrt(dist2(x, y, p.x, p.y));
@@ -328,7 +365,8 @@ export class Game extends Phaser.Scene {
     this.comboT = 3;
     this.mult = Math.min(16, 1 + Math.floor(this.combo / 4));
     this.score += z.score * this.mult;
-    if (Math.random() < 0.11) {
+    // 巨汉必掉补给，其余 11% 概率
+    if (z.type === 'brute' || Math.random() < 0.11) {
       this.pickups.push(new Pickup(
         this,
         clamp(z.x, WALL_T + 16, W - WALL_T - 16),
@@ -339,10 +377,39 @@ export class Game extends Phaser.Scene {
     this.checkUnlocks();
   }
 
+  private hurtDevil(d: Devil, dmg: number, owner: Player | null) {
+    if (d.hp <= 0) return;
+    d.hp -= dmg;
+    d.flashT = 0.06;
+    this.particles.spawn(d.x, d.y, 3, C.blood, 90, 0.3, 3);
+    if (d.hp <= 0) this.killDevil(d, owner);
+  }
+
+  private killDevil(d: Devil, owner: Player | null) {
+    void owner;
+    d.dead = true;
+    this.bloodBurst(d.x, d.y, true);
+    Sfx.zdie();
+    this.kills++;
+    this.combo++;
+    this.comboT = 3;
+    this.mult = Math.min(16, 1 + Math.floor(this.combo / 4));
+    this.score += d.score * this.mult;
+    // 恶魔必掉补给
+    this.pickups.push(new Pickup(
+      this,
+      clamp(d.x, WALL_T + 16, W - WALL_T - 16),
+      clamp(d.y, WALL_T + 16, H - WALL_T - 16),
+      Math.random() < 0.65 ? 'ammo' : 'med',
+    ));
+    this.checkUnlocks();
+  }
+
   private damagePlayer(p: Player, dmg: number, owner: Player | null) {
     if (!p.alive || p.invulnT > 0) return;
     p.hp -= dmg;
     p.hurtT = 0.25;
+    p.regenT = 0;
     Sfx.hurt();
     this.particles.spawn(p.x, p.y, 6, C.blood, 130, 0.35, 4);
     if (p.hp <= 0) {
@@ -401,11 +468,22 @@ export class Game extends Phaser.Scene {
 
   /* ---------------- 生成 ---------------- */
 
-  private spawnZombie() {
+  private spawnEnemy() {
     const gate = pick(SPAWN_GATES);
     const x = gate.x + rand(-30, 30), y = gate.y + rand(-30, 30);
-    let type: ZombieType = 'normal';
     const roll = Math.random();
+    if (this.t > 120 && roll < 0.08 && this.devils.length < 3) {
+      const d = new Devil(this, x, y);
+      this.tweens.add({ targets: d.img, scale: 1, duration: 260, ease: 'Back.easeOut' });
+      this.devils.push(d);
+      this.particles.spawn(x, y, 10, 0xc23a1e, 120, 0.45, 5);
+      if (!this.seenDevil) {
+        this.seenDevil = true;
+        this.toasts.show('恶魔出现了！飞越障碍、远程吐火球，优先击杀！', '#FF6B5E');
+      }
+      return;
+    }
+    let type: ZombieType = 'normal';
     if (this.t > 90 && roll < 0.12) type = 'brute';
     else if (this.t > 40 && roll < 0.38) type = 'fast';
     const z = new Zombie(this, x, y, type);
@@ -506,6 +584,14 @@ export class Game extends Phaser.Scene {
     p.invulnT = Math.max(0, p.invulnT - dt);
     p.muzzle = Math.max(0, p.muzzle - dt);
 
+    // 简单难度：脱战 3 秒后自动回血
+    if (this.diff === 'easy' && p.hp < 100) {
+      p.regenT += dt;
+      if (p.regenT > 3) p.hp = Math.min(100, p.hp + 8 * dt);
+    } else {
+      p.regenT = 0;
+    }
+
     const inp = this.mode === 'single'
       ? this.keyInput.read(CTRL_P1, CTRL_P2)
       : this.keyInput.read(p.idx === 0 ? CTRL_P1 : CTRL_P2);
@@ -585,6 +671,109 @@ export class Game extends Phaser.Scene {
     }
   }
 
+  /** 恶魔 AI：飞越障碍追击玩家，贴近即蓄力吐球（火球不分敌我） */
+  private updateDevils(dt: number) {
+    const ps = this.players.filter(p => p.alive);
+    for (const d of this.devils) {
+      if (d.dead) continue;
+      d.hoverT += dt;
+      d.flashT = Math.max(0, d.flashT - dt);
+      if (!ps.length) break;
+      let tp = ps[0], nd = Infinity;
+      for (const p of ps) {
+        const dd = dist2(d.x, d.y, p.x, p.y);
+        if (dd < nd) { nd = dd; tp = p; }
+      }
+      const dist = Math.sqrt(nd);
+      const a = Math.atan2(tp.y - d.y, tp.x - d.x);
+      d.face = a;
+      if (d.windT > 0) {
+        d.windT -= dt;
+        if (d.windT <= 0) {
+          const a2 = Math.atan2(tp.y - d.y, tp.x - d.x);
+          this.fireballs.push(new Fireball(
+            this,
+            d.x + Math.cos(a2) * 22, d.y + Math.sin(a2) * 22,
+            Math.cos(a2) * 185, Math.sin(a2) * 185,
+          ));
+          Sfx.fireball();
+          d.shootT = rand(2.2, 3.2);
+        }
+      } else {
+        // 追击（飞越方块，仅受场地边界限制）
+        if (dist > 40) {
+          const spd = 74;
+          d.x = clamp(d.x + Math.cos(a) * spd * dt, WALL_T + d.r, W - WALL_T - d.r);
+          d.y = clamp(d.y + Math.sin(a) * spd * dt, WALL_T + d.r, H - WALL_T - d.r);
+        }
+        d.shootT -= dt;
+        if (d.shootT <= 0 && dist < 300) {
+          d.windT = DEVIL_WINDUP;
+          Sfx.devil();
+        }
+      }
+      d.sync();
+    }
+    if (this.devils.some(d => d.dead)) {
+      for (const d of this.devils) if (d.dead) d.destroy();
+      this.devils = this.devils.filter(d => !d.dead);
+    }
+  }
+
+  /** 火球命中/撞墙的小爆炸：伤僵尸也伤玩家（恶魔免疫），留焦痕 */
+  private explodeFireball(x: number, y: number) {
+    this.stampDecal('fx_scorch', x, y, 0.5, 0.7);
+    this.particles.spawn(x, y, 12, 0xf7a026, 160, 0.35, 5);
+    this.particles.spawn(x, y, 6, C.smoke, 90, 0.5, 5);
+    Sfx.fhit();
+    const r = 55;
+    for (const z of this.zombies) {
+      if (z.dead) continue;
+      const d = Math.sqrt(dist2(x, y, z.x, z.y));
+      if (d < r + z.r) {
+        this.hurtZombie(z, 45 * clamp(1 - (d / (r + z.r)) * 0.6, 0.3, 1), null);
+      }
+    }
+    for (const p of this.players) {
+      if (!p.alive) continue;
+      const d = Math.sqrt(dist2(x, y, p.x, p.y));
+      if (d < r + p.r) this.damagePlayer(p, 20 * clamp(1 - (d / (r + p.r)) * 0.5, 0.4, 1), null);
+    }
+  }
+
+  /** 火球：直线飞行 + 尾迹粒子，撞墙/撞僵尸/撞玩家都会爆炸 */
+  private updateFireballs(dt: number) {
+    for (const fb of this.fireballs) {
+      fb.life -= dt;
+      fb.x += fb.vx * dt;
+      fb.y += fb.vy * dt;
+      if (fb.life <= 0) { fb.dead = true; continue; }
+      this.particles.spawn(fb.x, fb.y, 1, 0xf7a026, 20, 0.25, 3);
+      if (hitsWall(fb.x, fb.y, 4, this.map.blocks)) {
+        this.explodeFireball(fb.x, fb.y);
+        fb.dead = true; continue;
+      }
+      for (const z of this.zombies) {
+        if (!z.dead && dist2(fb.x, fb.y, z.x, z.y) < (z.r + 5) * (z.r + 5)) {
+          this.explodeFireball(fb.x, fb.y);
+          fb.dead = true; break;
+        }
+      }
+      if (fb.dead) continue;
+      for (const p of this.players) {
+        if (p.alive && dist2(fb.x, fb.y, p.x, p.y) < (p.r + 5) * (p.r + 5)) {
+          this.explodeFireball(fb.x, fb.y);
+          fb.dead = true; break;
+        }
+      }
+      if (!fb.dead) fb.sync();
+    }
+    if (this.fireballs.some(f => f.dead)) {
+      for (const f of this.fireballs) if (f.dead) f.destroy();
+      this.fireballs = this.fireballs.filter(f => !f.dead);
+    }
+  }
+
   private updateBullets(dt: number) {
     for (const bl of this.bullets) {
       bl.life -= dt;
@@ -608,6 +797,14 @@ export class Game extends Phaser.Scene {
         if (!z.dead && dist2(bl.x, bl.y, z.x, z.y) < (z.r + 3) * (z.r + 3)) {
           if (bl.kind === 'rocket') this.explode(bl.x, bl.y, 90, bl.dmg, bl.owner);
           else this.hurtZombie(z, bl.dmg, bl.owner);
+          bl.dead = true; break;
+        }
+      }
+      if (bl.dead) continue;
+      for (const dv of this.devils) {
+        if (!dv.dead && dist2(bl.x, bl.y, dv.x, dv.y) < (dv.r + 3) * (dv.r + 3)) {
+          if (bl.kind === 'rocket') this.explode(bl.x, bl.y, 90, bl.dmg, bl.owner);
+          else this.hurtDevil(dv, bl.dmg, bl.owner);
           bl.dead = true; break;
         }
       }
@@ -681,21 +878,19 @@ export class Game extends Phaser.Scene {
             p.hp = Math.min(100, p.hp + 40);
             this.toasts.show(`${p.label} 恢复生命 +40`, '#7BE07B');
           } else {
-            const w = WEAPONS[p.weapons[p.cur]];
-            if (w.max) {
-              const add = Math.ceil(w.max * 0.35);
-              p.ammo[w.id] = Math.min(w.max, (p.ammo[w.id] || 0) + add);
-              this.toasts.show(`${p.label} ${w.name}弹药 +${add}`, '#F7A026');
+            // 优先补手上没满的武器；手上满了/手枪则补其他不满的；全满给分
+            const cur = WEAPONS[p.weapons[p.cur]];
+            let target = cur.max && (p.ammo[cur.id] || 0) < cur.max ? cur : undefined;
+            if (!target) {
+              target = p.weapons.map(i => WEAPONS[i]).find(w2 => !!w2.max && (p.ammo[w2.id] || 0) < w2.max!);
+            }
+            if (target) {
+              const add = Math.ceil(target.max! * 0.35);
+              p.ammo[target.id] = Math.min(target.max!, (p.ammo[target.id] || 0) + add);
+              this.toasts.show(`${p.label} ${target.name}弹药 +${add}`, '#F7A026');
             } else {
-              const alt = p.weapons.map(i => WEAPONS[i]).find(w2 => w2.max && (p.ammo[w2.id] || 0) < w2.max);
-              if (alt) {
-                const add = Math.ceil(alt.max! * 0.35);
-                p.ammo[alt.id] = Math.min(alt.max!, (p.ammo[alt.id] || 0) + add);
-                this.toasts.show(`${p.label} ${alt.name}弹药 +${add}`, '#F7A026');
-              } else {
-                this.score += 200 * this.mult;
-                this.toasts.show(`${p.label} 得分 +${200 * this.mult}`, '#F7A026');
-              }
+              this.score += 200 * this.mult;
+              this.toasts.show(`${p.label} 得分 +${200 * this.mult}`, '#F7A026');
             }
           }
           Sfx.pickup();
@@ -760,7 +955,7 @@ export class Game extends Phaser.Scene {
       this.overT -= dt;
       if (this.overT <= 0) {
         this.scene.start('GameOver', {
-          mode: this.mode, mapIdx: this.mapIdx,
+          mode: this.mode, mapIdx: this.mapIdx, difficulty: this.diff,
           score: this.score, kills: this.kills, time: this.t, winner: this.winner,
         });
       }
@@ -781,12 +976,43 @@ export class Game extends Phaser.Scene {
       if (this.comboT <= 0) { this.combo = 0; this.mult = 1; }
     }
 
-    // 僵尸生成：随时间与击杀加压
+    // 波次：每 18 杀推进一波，数量与频率递增
+    const wave = 1 + Math.floor(this.kills / 18);
+    if (wave !== this.wave) {
+      this.wave = wave;
+      this.toasts.show(`第 ${wave} 波！数量与频率提升`, '#F7A026');
+      Sfx.levelup();
+    }
     this.spawnT -= dt;
-    const target = Math.min(4 + Math.floor(this.t / 11) + Math.floor(this.kills / 16), this.mode === 'versus' ? 14 : 26);
-    if (this.spawnT <= 0 && this.zombies.length < target) {
-      this.spawnZombie();
-      this.spawnT = Math.max(0.35, 1.3 - this.t * 0.004);
+    const target = Math.min(3 + wave * 2 + Math.floor(this.t / 30), this.mode === 'versus' ? 14 : 26);
+    if (this.spawnT <= 0 && this.zombies.length + this.devils.length < target) {
+      this.spawnEnemy();
+      this.spawnT = Math.max(0.3, 1.3 - (wave - 1) * 0.07);
+    }
+
+    // 补给箱：固定点空位补货（18s）+ 随机位置刷新（13~18s，场上最多 4 个）
+    this.spotT -= dt;
+    if (this.spotT <= 0) {
+      this.spotT = 18;
+      this.map.crates.forEach((c, i) => {
+        const occupied = this.pickups.some(pk => dist2(pk.x, pk.y, c.x, c.y) < 24 * 24);
+        if (!occupied && !hitsWall(c.x, c.y, 14, this.map.blocks)) {
+          this.pickups.push(new Pickup(this, c.x, c.y, i % 2 === 0 ? 'ammo' : 'med'));
+        }
+      });
+    }
+    this.crateT -= dt;
+    if (this.crateT <= 0) {
+      this.crateT = rand(13, 18);
+      if (this.pickups.length < 4) {
+        for (let i = 0; i < 12; i++) {
+          const x = rand(WALL_T + 30, W - WALL_T - 30), y = rand(WALL_T + 30, H - WALL_T - 30);
+          if (!hitsWall(x, y, 16, this.map.blocks)) {
+            this.pickups.push(new Pickup(this, x, y, Math.random() < 0.65 ? 'ammo' : 'med'));
+            break;
+          }
+        }
+      }
     }
 
     for (const p of this.players) {
@@ -794,6 +1020,8 @@ export class Game extends Phaser.Scene {
       p.sync();
     }
     this.updateZombies(dt);
+    this.updateDevils(dt);
+    this.updateFireballs(dt);
     this.updateBullets(dt);
     this.updateGadgets(dt);
     this.updatePickups(dt);

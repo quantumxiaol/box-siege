@@ -5,6 +5,8 @@ export interface MapDef {
   name: string;
   blocks: BlockDef[];
   barrels: { x: number; y: number }[];
+  /** 补给箱固定刷新点（弹药/医疗交替，空位后定时补货） */
+  crates: { x: number; y: number }[];
   spawns: { single: number[][]; coop: number[][]; versus: number[][] };
 }
 
@@ -18,6 +20,7 @@ export const MAPS: MapDef[] = [
       { x: 312, y: 140, w: 84, h: 84 }, { x: 564, y: 376, w: 84, h: 84 },
     ],
     barrels: [{ x: 120, y: 300 }, { x: 826, y: 300 }],
+    crates: [{ x: 480, y: 120 }, { x: 260, y: 480 }, { x: 700, y: 480 }],
     spawns: { single: [[480, 300]], coop: [[440, 300], [520, 300]], versus: [[480, 110], [480, 490]] },
   },
   {
@@ -27,6 +30,7 @@ export const MAPS: MapDef[] = [
       { x: 280, y: 212, w: 42, h: 176 }, { x: 638, y: 212, w: 42, h: 176 },
     ],
     barrels: [{ x: 470, y: 268 }, { x: 514, y: 324 }],
+    crates: [{ x: 480, y: 110 }, { x: 150, y: 480 }, { x: 810, y: 480 }],
     spawns: { single: [[480, 300]], coop: [[448, 300], [512, 300]], versus: [[480, 110], [480, 490]] },
   },
   {
@@ -36,6 +40,7 @@ export const MAPS: MapDef[] = [
       { x: 190, y: 258, w: 220, h: 84 }, { x: 550, y: 258, w: 220, h: 84 },
     ],
     barrels: [{ x: 110, y: 110 }, { x: 836, y: 110 }, { x: 110, y: 476 }, { x: 836, y: 476 }],
+    crates: [{ x: 480, y: 520 }, { x: 140, y: 140 }, { x: 820, y: 140 }],
     spawns: { single: [[480, 300]], coop: [[448, 300], [512, 300]], versus: [[140, 300], [820, 300]] },
   },
 ];
