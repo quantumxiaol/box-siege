@@ -114,6 +114,11 @@ export class Zombie {
   flashT = 0;
   /** 攻击前摇剩余时间，>0 表示正在蓄力 */
   windT = 0;
+  /** 卡墙检测：持续位移不足则累计，超过阈值触发绕行 */
+  stuckT = 0;
+  /** 绕行剩余时间与方向（±90°） */
+  detourT = 0;
+  detourSign: 1 | -1 = 1;
 
   private set: string;
   private curTex = '';

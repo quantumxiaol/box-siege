@@ -8,6 +8,8 @@ export interface CtrlScheme {
 
 export const CTRL_P1: CtrlScheme = { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', fire: 'Slash', prev: 'Comma', next: 'Period' };
 export const CTRL_P2: CtrlScheme = { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', fire: 'Space', prev: 'KeyQ', next: 'KeyE' };
+/** 单人模式合并用：空格留给暂停，不再兼任射击 */
+export const CTRL_P2_NF: CtrlScheme = { ...CTRL_P2, fire: '__disabled__' };
 
 export interface InputFrame {
   mx: number; my: number; fire: boolean; prev: boolean; next: boolean;
@@ -23,6 +25,7 @@ export class Input {
   onMute: (() => void) | null = null;
   onFullscreen: (() => void) | null = null;
   onEscape: (() => void) | null = null;
+  onSpace: (() => void) | null = null;
 
   private downHandler = (e: KeyboardEvent) => {
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Slash'].includes(e.code)) e.preventDefault();
@@ -34,6 +37,7 @@ export class Input {
       if (e.code === 'KeyM') this.onMute?.();
       if (e.code === 'KeyF') this.onFullscreen?.();
       if (e.code === 'Escape') this.onEscape?.();
+      if (e.code === 'Space') this.onSpace?.();
     }
   };
   private upHandler = (e: KeyboardEvent) => { this.keys[e.code] = false; };

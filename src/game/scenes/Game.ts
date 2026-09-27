@@ -4,7 +4,7 @@ import { MAPS, SPAWN_GATES, MapDef } from '../data/maps';
 import { WEAPONS, UNLOCK_AT } from '../data/weapons';
 import { TEX, BLOOD_VARIANTS, drawBlockSide, drawBlockTop, ensureBlockTopTexture } from '../textures';
 import { collideWalls, hitsWall } from '../collision';
-import { Input, CTRL_P1, CTRL_P2, bindInputLifecycle } from '../input';
+import { Input, CTRL_P1, CTRL_P2, CTRL_P2_NF, bindInputLifecycle } from '../input';
 import { Sfx } from '../sfx';
 import { Player, Zombie, Bullet, Grenade, Mine, Barrel, Pickup, ZombieType, ZOMBIE_WINDUP, Devil, Fireball, DEVIL_WINDUP } from '../objects/entities';
 import { ParticlePool, Toasts } from '../objects/fx';
@@ -129,6 +129,8 @@ export class Game extends Phaser.Scene {
     };
     this.keyInput.onFullscreen = () => this.scale.toggleFullscreen();
     this.keyInput.onEscape = () => this.scene.start('MainMenu');
+    // 单人模式：空格暂停（不再兼任射击）
+    this.keyInput.onSpace = () => { if (this.mode === 'single') this.togglePause(); };
 
     this.toasts.show(`${this.map.name} · ${this.diff === 'easy' ? '简单' : '困难'}`, '#FFFFFF');
 
@@ -593,7 +595,7 @@ export class Game extends Phaser.Scene {
     }
 
     const inp = this.mode === 'single'
-      ? this.keyInput.read(CTRL_P1, CTRL_P2)
+      ? this.keyInput.read(CTRL_P1, CTRL_P2_NF)
       : this.keyInput.read(p.idx === 0 ? CTRL_P1 : CTRL_P2);
 
     if (inp.prev) this.switchWeapon(p, -1);
@@ -641,7 +643,25 @@ export class Game extends Phaser.Scene {
         }
       } else if (d > z.r + tp.r + 4) {
         const sp = z.speed * (z.slowT > 0 ? 0.4 : 1);
-        const c = collideWalls(z.x + Math.cos(a) * sp * dt, z.y + Math.sin(a) * sp * dt, z.r, this.map.blocks);
+        // 卡墙绕行：直行受阻就沿垂直方向绕一段
+        let a2 = a;
+        if (z.detourT > 0) {
+          z.detourT -= dt;
+          a2 = a + z.detourSign * Math.PI / 2;
+        }
+        const want = sp * dt;
+        const c = collideWalls(z.x + Math.cos(a2) * want, z.y + Math.sin(a2) * want, z.r, this.map.blocks);
+        const movedSq = dist2(z.x, z.y, c.x, c.y);
+        if (movedSq < want * want * 0.04) {
+          z.stuckT += dt;
+          if (z.stuckT > 0.4) {
+            z.stuckT = 0;
+            z.detourT = 0.7;
+            z.detourSign = Math.random() < 0.5 ? 1 : -1;
+          }
+        } else {
+          z.stuckT = Math.max(0, z.stuckT - dt * 2);
+        }
         z.x = c.x; z.y = c.y;
       } else if (z.cd <= 0) {
         z.windT = ZOMBIE_WINDUP;
