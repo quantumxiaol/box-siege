@@ -8,6 +8,9 @@ const MODES: { id: GameMode; name: string; note: string }[] = [
   { id: 'single', name: '单人求生', note: '独自顶住一波波僵尸，活得越久越强。' },
   { id: 'coop',   name: '双人合作', note: '同键盘并肩作战，共享击杀解锁武器。' },
   { id: 'versus', name: '双人对战', note: '互相射击 + 僵尸搅局，先拿 10 个击杀获胜。' },
+  { id: 'aiMate', name: 'AI 队友', note: 'P2 由 AI 接管并肩作战，你操作玩家一（两套键位通用）。' },
+  { id: 'aiVersus', name: 'AI 对战', note: '与 AI 对决：互相射击 + 僵尸搅局，先拿 10 杀获胜。' },
+  { id: 'spectate', name: 'AI 演示', note: '观战：两个 AI 配合求生，空格切换 2 倍速。' },
 ];
 
 const DIFFS: { id: Difficulty; name: string; note: string }[] = [
@@ -43,49 +46,51 @@ export class MainMenu extends Phaser.Scene {
 
     const cx = W / 2;
     this.makeButton(W - 92, 36, 148, 34, '图鉴 · 说明', () => this.toggleHelp(true));
-    this.add.text(cx, 66, 'BOX SIEGE', {
+    this.add.text(cx, 60, 'BOX SIEGE', {
       fontFamily: '"Press Start 2P", monospace',
-      fontSize: '28px',
+      fontSize: '26px',
       color: css(C.amber),
       stroke: '#1a1a1a',
       strokeThickness: 6,
     }).setOrigin(0.5);
-    this.add.text(cx, 110, '方块围城', {
+    this.add.text(cx, 102, '方块围城', {
       fontFamily: '"PingFang SC", "Microsoft YaHei", sans-serif',
-      fontSize: '48px',
+      fontSize: '44px',
       fontStyle: 'bold',
       color: '#FFFFFF',
       stroke: '#1a1a1a',
       strokeThickness: 8,
     }).setOrigin(0.5);
-    this.add.text(cx, 150, '方块风俯视角打僵尸 · 同键盘双人', {
+    this.add.text(cx, 140, '方块风俯视角打僵尸 · 同键盘双人 · AI 队友与观战', {
       fontFamily: '"PingFang SC", "Microsoft YaHei", sans-serif',
       fontSize: '14px',
       color: '#C9C2B2',
     }).setOrigin(0.5);
 
-    // 模式选择
-    this.add.text(cx, 182, '— 选择模式 —', this.labelStyle()).setOrigin(0.5);
+    // 模式选择（双排：人类 / AI）
+    this.add.text(cx, 170, '— 选择模式 —', this.labelStyle()).setOrigin(0.5);
     MODES.forEach((m, i) => {
-      const x = cx + (i - 1) * 176;
-      const bg = this.makeButton(x, 214, 160, 40, m.name, () => {
+      const row = i < 3 ? 0 : 1;
+      const x = cx + ((i % 3) - 1) * 176;
+      const y = row === 0 ? 198 : 240;
+      const bg = this.makeButton(x, y, 160, 36, m.name, () => {
         this.mode = m.id;
         this.noteText.setText(m.note);
         this.refreshButtons();
       });
       this.modeBtns.push({ id: m.id, bg });
     });
-    this.noteText = this.add.text(cx, 248, MODES[0].note, {
+    this.noteText = this.add.text(cx, 272, MODES[0].note, {
       fontFamily: '"PingFang SC", "Microsoft YaHei", sans-serif',
       fontSize: '13px',
       color: '#9a94a8',
     }).setOrigin(0.5);
 
     // 地图选择
-    this.add.text(cx, 280, '— 选择房间 —', this.labelStyle()).setOrigin(0.5);
+    this.add.text(cx, 300, '— 选择房间 —', this.labelStyle()).setOrigin(0.5);
     MAPS.forEach((m, i) => {
       const x = cx + (i - 1) * 140;
-      const bg = this.makeButton(x, 310, 124, 36, m.name, () => {
+      const bg = this.makeButton(x, 328, 124, 36, m.name, () => {
         this.mapIdx = i;
         this.refreshButtons();
       });
@@ -93,27 +98,27 @@ export class MainMenu extends Phaser.Scene {
     });
 
     // 难度选择
-    this.add.text(cx, 346, '— 选择难度 —', this.labelStyle()).setOrigin(0.5);
+    this.add.text(cx, 364, '— 选择难度 —', this.labelStyle()).setOrigin(0.5);
     DIFFS.forEach((d, i) => {
       const x = cx + (i - 0.5) * 140;
-      const bg = this.makeButton(x, 374, 124, 36, d.name, () => {
+      const bg = this.makeButton(x, 392, 124, 36, d.name, () => {
         this.diff = d.id;
         this.diffNote.setText(d.note);
         this.refreshButtons();
       });
       this.diffBtns.push({ id: d.id, bg });
     });
-    this.diffNote = this.add.text(cx, 404, DIFFS[1].note, {
+    this.diffNote = this.add.text(cx, 420, DIFFS[1].note, {
       fontFamily: '"PingFang SC", "Microsoft YaHei", sans-serif',
       fontSize: '12px',
       color: '#9a94a8',
     }).setOrigin(0.5);
 
     // 开始
-    const startBg = this.add.rectangle(cx, 450, 260, 50, 0xc23a1e)
+    const startBg = this.add.rectangle(cx, 458, 260, 48, 0xc23a1e)
       .setStrokeStyle(3, 0xf7a026)
       .setInteractive({ useHandCursor: true });
-    const startText = this.add.text(cx, 450, '▶ 开 始 游 戏', {
+    const startText = this.add.text(cx, 458, '▶ 开 始 游 戏', {
       fontFamily: '"PingFang SC", "Microsoft YaHei", sans-serif',
       fontSize: '22px',
       fontStyle: 'bold',
@@ -125,17 +130,17 @@ export class MainMenu extends Phaser.Scene {
     startText.setInteractive({ useHandCursor: true }).on('pointerdown', () => this.startGame());
 
     // 键位说明
-    this.add.text(cx - 200, 502, [
+    this.add.text(cx - 200, 506, [
       '玩家一',
       '方向键 移动',
       '/ 射击·使用    , . 换武器',
     ], this.helpStyle());
-    this.add.text(cx + 200, 502, [
+    this.add.text(cx + 200, 506, [
       '玩家二',
       'W A S D 移动',
       '空格 射击·使用    Q E 换武器',
     ], this.helpStyle()).setAlign('right').setOrigin(1, 0);
-    this.add.text(cx, 578, 'P 暂停（单人可用空格）· M 静音 · F 全屏 · Esc 回菜单 ｜ 单人模式两套按键通用', {
+    this.add.text(cx, 578, 'P 暂停（单人/AI 队友可用空格）· M 静音 · F 全屏 · Esc 回菜单 ｜ 单人模式两套按键通用', {
       fontFamily: '"PingFang SC", "Microsoft YaHei", sans-serif',
       fontSize: '12px',
       color: '#8a8494',
@@ -209,6 +214,7 @@ export class MainMenu extends Phaser.Scene {
       c.add(body(mx + 56, y + 24, m.desc, 12));
     });
     c.add(body(mx, 412, ['僵尸抓挠、恶魔吐球都有前摇蓄力：', '看到变色下蹲，立刻拉开距离！'], 12, '#FF8A5E'));
+    c.add(body(mx, 458, ['AI 模式：队友 / 对战 / 演示，', '演示中空格切换 2 倍速。'], 12, '#8a8494'));
 
     c.add(body(cx, 498, '连击：每 4 连杀 +1 倍率（最高 x16），3 秒无击杀中断 ｜ 击杀 11% 概率掉补给', 12, '#8a8494').setOrigin(0.5));
     c.add(body(cx, 520, '波次随击杀推进：数量与频次逐波提升 ｜ 地图固定点 + 随机位置定时刷新补给箱', 12, '#8a8494').setOrigin(0.5));

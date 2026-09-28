@@ -1,6 +1,7 @@
 import * as Phaser from 'phaser';
 import { TAU, rand } from '../config';
 import { TEX } from '../textures';
+import type { BotLike } from '../input';
 
 export type ZombieType = 'normal' | 'fast' | 'brute';
 
@@ -49,6 +50,8 @@ export class Player {
   regenT = 0;
   frags = 0; deaths = 0;
   walkT = 0; muzzle = 0;
+  /** AI 接管时挂载的控制器，人类玩家为 null */
+  bot: BotLike | null = null;
 
   private set: string;
   private curTex = '';

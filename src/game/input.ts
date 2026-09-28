@@ -13,6 +13,13 @@ export const CTRL_P2_NF: CtrlScheme = { ...CTRL_P2, fire: '__disabled__' };
 
 export interface InputFrame {
   mx: number; my: number; fire: boolean; prev: boolean; next: boolean;
+  /** bot 专用：显式朝向（实现边退边打），键盘输入不设此字段 */
+  face?: number;
+}
+
+/** bot 控制器接口（entities 依赖此类型避免循环引用） */
+export interface BotLike {
+  update(dt: number): InputFrame;
 }
 
 /** 键盘状态 + 边沿触发（基于 e.code，与布局无关） */

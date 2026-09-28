@@ -4,10 +4,12 @@ import { MAPS, SPAWN_GATES, MapDef } from '../data/maps';
 import { WEAPONS, UNLOCK_AT } from '../data/weapons';
 import { TEX, BLOOD_VARIANTS, drawBlockSide, drawBlockTop, ensureBlockTopTexture } from '../textures';
 import { collideWalls, hitsWall } from '../collision';
-import { Input, CTRL_P1, CTRL_P2, CTRL_P2_NF, bindInputLifecycle } from '../input';
+import { Input, CTRL_P1, CTRL_P2, CTRL_P2_NF, bindInputLifecycle, InputFrame } from '../input';
 import { Sfx } from '../sfx';
 import { Player, Zombie, Bullet, Grenade, Mine, Barrel, Pickup, ZombieType, ZOMBIE_WINDUP, Devil, Fireball, DEVIL_WINDUP } from '../objects/entities';
 import { ParticlePool, Toasts } from '../objects/fx';
+import { NavGrid } from '../ai/navgrid';
+import { Bot, Persona } from '../ai/bot';
 
 export interface GameSceneData {
   mode?: GameMode;
@@ -18,24 +20,28 @@ export interface GameSceneData {
 type State = 'countdown' | 'play' | 'paused' | 'over';
 
 export class Game extends Phaser.Scene {
-  private mode: GameMode = 'single';
+  /** 以下字段对 bot 可见（GameAccess 结构化接口） */
+  mode: GameMode = 'single';
+  t = 0;
+  players: Player[] = [];
+  zombies: Zombie[] = [];
+  devils: Devil[] = [];
+  fireballs: Fireball[] = [];
+  mines: Mine[] = [];
+  barrels: Barrel[] = [];
+  pickups: Pickup[] = [];
+  nav!: NavGrid;
+
   private diff: Difficulty = 'hard';
   private mapIdx = 0;
   private map!: MapDef;
+  get blocks() { return this.map.blocks; }
   private state: State = 'countdown';
-  private t = 0;
   private countdownT = 2.4;
   private lastCount = 0;
 
-  private players: Player[] = [];
-  private zombies: Zombie[] = [];
-  private devils: Devil[] = [];
-  private fireballs: Fireball[] = [];
   private bullets: Bullet[] = [];
   private grenades: Grenade[] = [];
-  private mines: Mine[] = [];
-  private barrels: Barrel[] = [];
-  private pickups: Pickup[] = [];
   private delayed: { t: number; done: boolean; fn: () => void }[] = [];
 
   private score = 0;
@@ -52,6 +58,8 @@ export class Game extends Phaser.Scene {
   private seenFast = false;
   private seenBrute = false;
   private seenDevil = false;
+  private flowT = 0;
+  private speedMul = 1;
 
   private keyInput!: Input;
   private particles!: ParticlePool;
@@ -97,6 +105,7 @@ export class Game extends Phaser.Scene {
     this.buildStaticLayers();
 
     this.decals = [];
+    this.nav = new NavGrid(this.map.blocks);
 
     this.particles = new ParticlePool(this);
     this.toasts = new Toasts(this);
@@ -105,7 +114,7 @@ export class Game extends Phaser.Scene {
     const sp = this.map.spawns;
     if (this.mode === 'single') {
       this.players = [new Player(this, 0, sp.single[0][0], sp.single[0][1])];
-    } else if (this.mode === 'coop') {
+    } else if (this.mode === 'coop' || this.mode === 'aiMate' || this.mode === 'spectate') {
       this.players = sp.coop.map((s, i) => new Player(this, i, s[0], s[1]));
     } else {
       const p1 = new Player(this, 0, sp.versus[0][0], sp.versus[0][1]); p1.face = 0;
@@ -114,6 +123,15 @@ export class Game extends Phaser.Scene {
     }
     if (this.diff === 'easy') {
       for (const p of this.players) p.speed = 185;
+    }
+    // AI 接管
+    const aggressive: Persona = { engage: 190, safe: 120, hunger: 0.5, jitter: 0.04, orbitDir: 1 };
+    const cautious: Persona = { engage: 250, safe: 170, hunger: 0.9, jitter: 0.07, orbitDir: -1 };
+    if (this.mode === 'aiMate') this.players[1].bot = new Bot(this, this.players[1], cautious);
+    if (this.mode === 'aiVersus') this.players[1].bot = new Bot(this, this.players[1], aggressive);
+    if (this.mode === 'spectate') {
+      this.players[0].bot = new Bot(this, this.players[0], aggressive);
+      this.players[1].bot = new Bot(this, this.players[1], cautious);
     }
     this.barrels = this.map.barrels.map(b => new Barrel(this, b.x, b.y));
 
@@ -130,13 +148,24 @@ export class Game extends Phaser.Scene {
     this.keyInput.onFullscreen = () => this.scale.toggleFullscreen();
     this.keyInput.onEscape = () => this.scene.start('MainMenu');
     // 单人模式：空格暂停（不再兼任射击）
-    this.keyInput.onSpace = () => { if (this.mode === 'single') this.togglePause(); };
+    this.keyInput.onSpace = () => {
+      if (this.isSpectate()) {
+        this.speedMul = this.speedMul === 1 ? 2 : 1;
+        this.toasts.show(this.speedMul === 2 ? '2 倍速' : '1 倍速', '#F7A026');
+      } else if (this.mode === 'single' || this.mode === 'aiMate') {
+        this.togglePause();
+      }
+    };
 
     this.toasts.show(`${this.map.name} · ${this.diff === 'easy' ? '简单' : '困难'}`, '#FFFFFF');
 
     // 调试句柄（方便排查/二开）
     (window as unknown as { __scene: Game }).__scene = this;
   }
+
+  private isVersus() { return this.mode === 'versus' || this.mode === 'aiVersus'; }
+
+  private isSpectate() { return this.mode === 'spectate'; }
 
   /* ---------------- 静态层：地面 + 外墙 + 方块 ---------------- */
 
@@ -248,6 +277,15 @@ export class Game extends Phaser.Scene {
       stroke: '#000000',
       strokeThickness: 4,
     }).setOrigin(0.5).setDepth(999).setVisible(false);
+    if (this.isSpectate()) {
+      this.add.text(W / 2, H - 22, 'AI 演示 · 空格切换 2 倍速 · Esc 回菜单', {
+        fontFamily: '"PingFang SC", "Microsoft YaHei", sans-serif',
+        fontSize: '13px',
+        color: '#9a94a8',
+        stroke: '#000000',
+        strokeThickness: 3,
+      }).setOrigin(0.5).setDepth(1000);
+    }
   }
 
   private syncHUD() {
@@ -258,7 +296,7 @@ export class Game extends Phaser.Scene {
     for (const h of this.hud) {
       const p = h.p;
       if (!p.alive) {
-        const respawning = this.mode === 'versus' && this.state === 'play';
+        const respawning = this.isVersus() && this.state === 'play';
         h.label.setVisible(respawning);
         if (respawning) h.label.setText(`重生 ${Math.max(0, p.respawnT).toFixed(1)}`).setPosition(p.x, p.y - 40);
         h.hpBack.setVisible(false);
@@ -420,7 +458,7 @@ export class Game extends Phaser.Scene {
       p.deaths++;
       this.bloodBurst(p.x, p.y, true);
       this.toasts.show(`${p.label} 阵亡！`, '#FF6B5E');
-      if (this.mode === 'versus') {
+      if (this.isVersus()) {
         if (owner && owner !== p) {
           owner.frags++;
           this.toasts.show(`${owner.label} 击杀 ${p.label}！（${owner.frags}/10）`, owner.idx === 0 ? '#F7A026' : '#7FB2F0');
@@ -449,7 +487,7 @@ export class Game extends Phaser.Scene {
   }
 
   private checkGameOver() {
-    if (this.mode === 'versus') return;
+    if (this.isVersus()) return;
     if (this.players.every(p => !p.alive)) this.endGame(-1);
   }
 
@@ -460,7 +498,7 @@ export class Game extends Phaser.Scene {
     this.overT = 2.2;
     Sfx.over();
     this.veil.setFillStyle(0x000000, 0.45);
-    if (this.mode === 'versus' && winnerIdx >= 0) {
+    if (this.isVersus() && winnerIdx >= 0) {
       this.centerText.setText(`${this.players[winnerIdx].label} 获胜！`).setVisible(true);
     } else {
       this.centerText.setText('游戏结束').setVisible(true);
@@ -570,7 +608,7 @@ export class Game extends Phaser.Scene {
 
   private updatePlayer(p: Player, dt: number) {
     if (!p.alive) {
-      if (this.mode === 'versus') {
+      if (this.isVersus()) {
         p.respawnT -= dt;
         if (p.respawnT <= 0) {
           p.alive = true; p.hp = 100; p.invulnT = 2;
@@ -594,9 +632,15 @@ export class Game extends Phaser.Scene {
       p.regenT = 0;
     }
 
-    const inp = this.mode === 'single'
-      ? this.keyInput.read(CTRL_P1, CTRL_P2_NF)
-      : this.keyInput.read(p.idx === 0 ? CTRL_P1 : CTRL_P2);
+    let inp: InputFrame;
+    if (p.bot) {
+      inp = p.bot.update(dt);
+    } else if (this.mode === 'single' || this.mode === 'aiMate') {
+      // 只有一个人类时两套键位通用
+      inp = this.keyInput.read(CTRL_P1, CTRL_P2_NF);
+    } else {
+      inp = this.keyInput.read(p.idx === 0 ? CTRL_P1 : CTRL_P2);
+    }
 
     if (inp.prev) this.switchWeapon(p, -1);
     if (inp.next) this.switchWeapon(p, 1);
@@ -608,8 +652,9 @@ export class Game extends Phaser.Scene {
       p.walkT += dt * 10;
       const c = collideWalls(p.x + mx * p.speed * dt, p.y + my * p.speed * dt, p.r, this.map.blocks);
       p.x = c.x; p.y = c.y;
-      p.face = Math.atan2(my, mx);
+      if (inp.face === undefined) p.face = Math.atan2(my, mx);
     }
+    if (inp.face !== undefined) p.face = inp.face;
     if (inp.fire) this.tryFire(p);
   }
 
@@ -643,11 +688,18 @@ export class Game extends Phaser.Scene {
         }
       } else if (d > z.r + tp.r + 4) {
         const sp = z.speed * (z.slowT > 0 ? 0.4 : 1);
-        // 卡墙绕行：直行受阻就沿垂直方向绕一段
-        let a2 = a;
-        if (z.detourT > 0) {
-          z.detourT -= dt;
-          a2 = a + z.detourSign * Math.PI / 2;
+        // 主寻路：流场（>60px 启用，近身直取精确）；兜底：滞留绕行
+        let a2: number | null = null;
+        if (d > 60) {
+          const fd = this.nav.flowDir(z.x, z.y);
+          if (fd) a2 = Math.atan2(fd.y, fd.x);
+        }
+        if (a2 === null) {
+          a2 = a;
+          if (z.detourT > 0) {
+            z.detourT -= dt;
+            a2 = a + z.detourSign * Math.PI / 2;
+          }
         }
         const want = sp * dt;
         const c = collideWalls(z.x + Math.cos(a2) * want, z.y + Math.sin(a2) * want, z.r, this.map.blocks);
@@ -829,7 +881,7 @@ export class Game extends Phaser.Scene {
         }
       }
       if (bl.dead) continue;
-      if (this.mode === 'versus') {
+      if (this.isVersus()) {
         for (const p of this.players) {
           if (p.alive && p !== bl.owner && dist2(bl.x, bl.y, p.x, p.y) < (p.r + 3) * (p.r + 3)) {
             if (bl.kind === 'rocket') this.explode(bl.x, bl.y, 90, bl.dmg, bl.owner);
@@ -945,7 +997,7 @@ export class Game extends Phaser.Scene {
   /* ---------------- 主循环 ---------------- */
 
   update(_time: number, delta: number) {
-    const dt = Math.min(delta / 1000, 0.05);
+    const dt = Math.min(delta / 1000, 0.05) * this.speedMul;
 
     // 延迟队列（连锁爆炸）
     for (const d of this.delayed) if (this.t >= d.t && !d.done) { d.done = true; d.fn(); }
@@ -990,6 +1042,14 @@ export class Game extends Phaser.Scene {
 
     this.t += dt;
 
+    // 流场寻路：每 0.25s 以存活玩家为源重算（所有僵尸共享）
+    this.flowT -= dt;
+    if (this.flowT <= 0) {
+      this.flowT = 0.25;
+      const alive = this.players.filter(p => p.alive);
+      if (alive.length) this.nav.computeFlow(alive);
+    }
+
     // 连击衰减
     if (this.comboT > 0) {
       this.comboT -= dt;
@@ -1004,7 +1064,7 @@ export class Game extends Phaser.Scene {
       Sfx.levelup();
     }
     this.spawnT -= dt;
-    const target = Math.min(3 + wave * 2 + Math.floor(this.t / 30), this.mode === 'versus' ? 14 : 26);
+    const target = Math.min(3 + wave * 2 + Math.floor(this.t / 30), this.isVersus() ? 14 : 26);
     if (this.spawnT <= 0 && this.zombies.length + this.devils.length < target) {
       this.spawnEnemy();
       this.spawnT = Math.max(0.3, 1.3 - (wave - 1) * 0.07);

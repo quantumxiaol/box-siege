@@ -29,7 +29,7 @@ export class GameOver extends Phaser.Scene {
     const cx = W / 2;
     this.add.rectangle(cx, H / 2, W, H, 0x0c0b08, 0.92);
 
-    const isVersusWin = mode === 'versus' && winner >= 0;
+    const isVersusWin = (mode === 'versus' || mode === 'aiVersus') && winner >= 0;
     this.add.text(cx, 150, isVersusWin ? `P${winner + 1} 获胜！` : '游戏结束', {
       fontFamily: '"PingFang SC", "Microsoft YaHei", sans-serif',
       fontSize: '52px',
