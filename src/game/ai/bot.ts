@@ -3,7 +3,7 @@ import { WEAPONS } from '../data/weapons';
 import { hasLOS } from '../collision';
 import type { InputFrame } from '../input';
 import type { NavGrid } from './navgrid';
-import type { Player, Zombie, Devil, Fireball, Pickup, Barrel, Mine } from '../objects/entities';
+import type { Player, Zombie, Devil, Fireball, Pickup, Barrel, Mine, Grenade, Bullet } from '../objects/entities';
 import type { BlockDef } from '../data/maps';
 
 /** bot 读取的世界状态（由 Game 场景结构性实现） */
@@ -15,6 +15,8 @@ export interface GameAccess {
   pickups: Pickup[];
   barrels: Barrel[];
   mines: Mine[];
+  grenades: Grenade[];
+  bullets: Bullet[];
   mode: GameMode;
   nav: NavGrid;
   blocks: BlockDef[];
@@ -74,11 +76,26 @@ export class Bot {
       ? g.players.find(pl => pl !== p && pl.alive) ?? null
       : null;
 
-    // 1) 闪避迎面火球
-    for (const fb of g.fireballs) {
-      if (fb.dead) continue;
+    // 1) 军火规避：逃离身边的手雷/地雷，侧移躲迎面火球与火箭
+    const gr = this.nearest(g.grenades.filter(gr => !gr.dead && gr.owner !== p), p.x, p.y);
+    if (gr && dist2(gr.x, gr.y, p.x, p.y) < 130 * 130) {
+      const a = Math.atan2(p.y - gr.y, p.x - gr.x);
+      inp.mx = Math.cos(a); inp.my = Math.sin(a);
+      return inp;
+    }
+    const mn = this.nearest(g.mines.filter(m => !m.dead && m.owner !== p), p.x, p.y);
+    if (mn && dist2(mn.x, mn.y, p.x, p.y) < 100 * 100) {
+      const a = Math.atan2(p.y - mn.y, p.x - mn.x);
+      inp.mx = Math.cos(a); inp.my = Math.sin(a);
+      return inp;
+    }
+    const projectiles: { x: number; y: number; vx: number; vy: number }[] = [
+      ...g.fireballs.filter(f => !f.dead),
+      ...g.bullets.filter(b => !b.dead && b.kind === 'rocket' && b.owner !== p),
+    ];
+    for (const fb of projectiles) {
       const d = Math.hypot(fb.x - p.x, fb.y - p.y);
-      if (d > 130) continue;
+      if (d > 140) continue;
       const toMe = Math.atan2(p.y - fb.y, p.x - fb.x);
       const vA = Math.atan2(fb.vy, fb.vx);
       let da = Math.abs(toMe - vA) % (Math.PI * 2);

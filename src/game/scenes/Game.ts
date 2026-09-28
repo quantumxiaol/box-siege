@@ -30,6 +30,8 @@ export class Game extends Phaser.Scene {
   mines: Mine[] = [];
   barrels: Barrel[] = [];
   pickups: Pickup[] = [];
+  grenades: Grenade[] = [];
+  bullets: Bullet[] = [];
   nav!: NavGrid;
 
   private diff: Difficulty = 'hard';
@@ -40,8 +42,6 @@ export class Game extends Phaser.Scene {
   private countdownT = 2.4;
   private lastCount = 0;
 
-  private bullets: Bullet[] = [];
-  private grenades: Grenade[] = [];
   private delayed: { t: number; done: boolean; fn: () => void }[] = [];
 
   private score = 0;
