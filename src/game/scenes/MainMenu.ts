@@ -140,7 +140,7 @@ export class MainMenu extends Phaser.Scene {
       'W A S D 移动',
       '空格 射击·使用    Q E 换武器',
     ], this.helpStyle()).setAlign('right').setOrigin(1, 0);
-    this.add.text(cx, 578, 'P 暂停（单人/AI 队友可用空格）· M 静音 · F 全屏 · Esc 回菜单 ｜ 单人模式两套按键通用', {
+    this.add.text(cx, 578, 'P 暂停 · M 静音 · F 全屏 · Esc 回菜单 ｜ 单人/AI 队友两套按键通用 · AI 演示空格 2 倍速', {
       fontFamily: '"PingFang SC", "Microsoft YaHei", sans-serif',
       fontSize: '12px',
       color: '#8a8494',

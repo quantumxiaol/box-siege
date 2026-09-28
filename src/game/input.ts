@@ -8,8 +8,6 @@ export interface CtrlScheme {
 
 export const CTRL_P1: CtrlScheme = { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', fire: 'Slash', prev: 'Comma', next: 'Period' };
 export const CTRL_P2: CtrlScheme = { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', fire: 'Space', prev: 'KeyQ', next: 'KeyE' };
-/** 单人模式合并用：空格留给暂停，不再兼任射击 */
-export const CTRL_P2_NF: CtrlScheme = { ...CTRL_P2, fire: '__disabled__' };
 
 export interface InputFrame {
   mx: number; my: number; fire: boolean; prev: boolean; next: boolean;
@@ -64,17 +62,18 @@ export class Input {
     this.pressed = Object.create(null);
   }
 
-  /** 读取一套键位；mergeAlt 提供时两套按键合并生效（单人模式） */
+  /** 读取一套键位；mergeAlt 提供时两套按键按「同一操作」合并生效（单人/AI 队友模式） */
   read(ctrl: CtrlScheme, mergeAlt?: CtrlScheme): InputFrame {
-    const k = (c: string) => !!this.keys[c] || (!!mergeAlt && !!this.keys[mergeAlt[c as keyof CtrlScheme]]);
-    const edge = (c: string) =>
-      !!this.pressed[c] || (!!mergeAlt && !!this.pressed[mergeAlt[c as keyof CtrlScheme]]);
+    const get = (prop: keyof CtrlScheme) =>
+      !!this.keys[ctrl[prop]] || (!!mergeAlt && !!this.keys[mergeAlt[prop]]);
+    const edge = (prop: keyof CtrlScheme) =>
+      !!this.pressed[ctrl[prop]] || (!!mergeAlt && !!this.pressed[mergeAlt[prop]]);
     return {
-      mx: (k(ctrl.right) ? 1 : 0) - (k(ctrl.left) ? 1 : 0),
-      my: (k(ctrl.down) ? 1 : 0) - (k(ctrl.up) ? 1 : 0),
-      fire: k(ctrl.fire),
-      prev: edge(ctrl.prev),
-      next: edge(ctrl.next),
+      mx: (get('right') ? 1 : 0) - (get('left') ? 1 : 0),
+      my: (get('down') ? 1 : 0) - (get('up') ? 1 : 0),
+      fire: get('fire'),
+      prev: edge('prev'),
+      next: edge('next'),
     };
   }
 

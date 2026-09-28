@@ -4,7 +4,7 @@ import { MAPS, SPAWN_GATES, MapDef } from '../data/maps';
 import { WEAPONS, UNLOCK_AT } from '../data/weapons';
 import { TEX, BLOOD_VARIANTS, drawBlockSide, drawBlockTop, ensureBlockTopTexture } from '../textures';
 import { collideWalls, hitsWall } from '../collision';
-import { Input, CTRL_P1, CTRL_P2, CTRL_P2_NF, bindInputLifecycle, InputFrame } from '../input';
+import { Input, CTRL_P1, CTRL_P2, bindInputLifecycle, InputFrame } from '../input';
 import { Sfx } from '../sfx';
 import { Player, Zombie, Bullet, Grenade, Mine, Barrel, Pickup, ZombieType, ZOMBIE_WINDUP, Devil, Fireball, DEVIL_WINDUP } from '../objects/entities';
 import { ParticlePool, Toasts } from '../objects/fx';
@@ -151,11 +151,10 @@ export class Game extends Phaser.Scene {
     this.keyInput.onEscape = () => this.scene.start('MainMenu');
     // 单人模式：空格暂停（不再兼任射击）
     this.keyInput.onSpace = () => {
+      // 仅 AI 演示：空格切换 2 倍速（其他模式空格是 P2 开火/无功能）
       if (this.isSpectate()) {
         this.speedMul = this.speedMul === 1 ? 2 : 1;
         this.toasts.show(this.speedMul === 2 ? '2 倍速' : '1 倍速', '#F7A026');
-      } else if (this.mode === 'single' || this.mode === 'aiMate') {
-        this.togglePause();
       }
     };
 
@@ -661,8 +660,8 @@ export class Game extends Phaser.Scene {
     if (p.bot) {
       inp = p.bot.update(dt);
     } else if (this.mode === 'single' || this.mode === 'aiMate') {
-      // 只有一个人类时两套键位通用
-      inp = this.keyInput.read(CTRL_P1, CTRL_P2_NF);
+      // 只有一个人类时两套键位通用（空格 = P2 开火）
+      inp = this.keyInput.read(CTRL_P1, CTRL_P2);
     } else {
       inp = this.keyInput.read(p.idx === 0 ? CTRL_P1 : CTRL_P2);
     }
