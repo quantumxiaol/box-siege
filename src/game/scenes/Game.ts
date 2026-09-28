@@ -107,6 +107,7 @@ export class Game extends Phaser.Scene {
     this.buildStaticLayers();
 
     this.decals = [];
+    this.decalPtr = 0;
     this.nav = new NavGrid(this.map.blocks);
 
     this.particles = new ParticlePool(this);

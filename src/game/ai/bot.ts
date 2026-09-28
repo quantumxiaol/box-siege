@@ -98,24 +98,26 @@ export class Bot {
       inp.mx = Math.cos(a); inp.my = Math.sin(a);
       return inp;
     }
-    const projectiles: { x: number; y: number; vx: number; vy: number; range: number }[] = [
-      ...g.fireballs.filter(f => !f.dead).map(f => ({ x: f.x, y: f.y, vx: f.vx, vy: f.vy, range: 140 })),
-      ...g.bullets.filter(b => !b.dead && b.kind === 'rocket' && b.owner !== p).map(b => ({ x: b.x, y: b.y, vx: b.vx, vy: b.vy, range: 160 })),
-    ];
-    for (const fb of projectiles) {
+    // 迎面投射物侧移（火球 range 140 / 火箭 range 160，直接遍历避免每帧拼数组）
+    const dodge = (fb: { x: number; y: number; vx: number; vy: number }, range: number): boolean => {
       const d = Math.hypot(fb.x - p.x, fb.y - p.y);
-      if (d > fb.range) continue;
+      if (d > range) return false;
       const toMe = Math.atan2(p.y - fb.y, p.x - fb.x);
       const vA = Math.atan2(fb.vy, fb.vx);
       let da = Math.abs(toMe - vA) % (Math.PI * 2);
       if (da > Math.PI) da = Math.PI * 2 - da;
-      if (da < 0.5) {
-        const px = Math.cos(vA + Math.PI / 2), py = Math.sin(vA + Math.PI / 2);
-        const side = (p.x - fb.x) * px + (p.y - fb.y) * py >= 0 ? 1 : -1;
-        inp.mx = px * side; inp.my = py * side;
-        inp.face = Math.atan2(-fb.vy, -fb.vx);
-        return inp;
-      }
+      if (da >= 0.5) return false;
+      const px = Math.cos(vA + Math.PI / 2), py = Math.sin(vA + Math.PI / 2);
+      const side = (p.x - fb.x) * px + (p.y - fb.y) * py >= 0 ? 1 : -1;
+      inp.mx = px * side; inp.my = py * side;
+      inp.face = Math.atan2(-fb.vy, -fb.vx);
+      return true;
+    };
+    for (const fb of g.fireballs) {
+      if (!fb.dead && dodge(fb, 140)) return inp;
+    }
+    for (const b of g.bullets) {
+      if (!b.dead && b.kind === 'rocket' && b.owner !== p && dodge(b, 160)) return inp;
     }
 
     const threat = this.nearest(threats, p.x, p.y);

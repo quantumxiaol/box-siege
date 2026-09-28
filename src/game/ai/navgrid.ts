@@ -4,8 +4,8 @@ import type { BlockDef } from '../data/maps';
 const CELL = 30;
 const COLS = Math.ceil(W / CELL);
 const ROWS = Math.ceil(H / CELL);
-/** 障碍膨胀量（≈ 角色半径 + 余量），光栅化时一次性计入 */
-const MARGIN = 15;
+/** 障碍膨胀量（= 普通僵尸/玩家半径 13；巨汉 r19 超出部分由碰撞与绕行兜底） */
+const MARGIN = 13;
 
 /** 小顶堆 [代价, 格子] */
 class Heap {
@@ -51,21 +51,30 @@ export class NavGrid {
   readonly rows = ROWS;
   readonly cell = CELL;
   private blocked = new Uint8Array(COLS * ROWS);
-  private cost = new Float32Array(COLS * ROWS);
+  // 代价必须用 Float64：Float32 会把对角代价 √2 截断，
+  // 导致 Dijkstra 的过期条目守卫（c > cost[i]）对自己的最优条目误判为过期而跳过扩展
+  private cost = new Float64Array(COLS * ROWS);
 
   constructor(blocks: BlockDef[]) {
+    // 密采样（格内 4px 步长）：格内任一样点满足净空即为可走。
+    // 稀疏采样/仅格心会把窄缺口（如回廊 40px 开口）误判为封死。
+    const offs = [-12, -8, -4, 0, 4, 8, 12];
     for (let cy = 0; cy < ROWS; cy++) {
       for (let cx = 0; cx < COLS; cx++) {
-        const x = (cx + 0.5) * CELL, y = (cy + 0.5) * CELL;
-        let b = 0;
-        if (x < WALL_T + MARGIN || x > W - WALL_T - MARGIN || y < WALL_T + MARGIN || y > H - WALL_T - MARGIN) {
-          b = 1;
-        } else {
-          for (const bl of blocks) {
-            if (x > bl.x - MARGIN && x < bl.x + bl.w + MARGIN && y > bl.y - MARGIN && y < bl.y + bl.h + MARGIN) { b = 1; break; }
+        let walkable = false;
+        for (const oy of offs) {
+          for (const ox of offs) {
+            if (walkable) break;
+            const x = (cx + 0.5) * CELL + ox, y = (cy + 0.5) * CELL + oy;
+            if (x < WALL_T + MARGIN || x > W - WALL_T - MARGIN || y < WALL_T + MARGIN || y > H - WALL_T - MARGIN) continue;
+            let hit = false;
+            for (const bl of blocks) {
+              if (x > bl.x - MARGIN && x < bl.x + bl.w + MARGIN && y > bl.y - MARGIN && y < bl.y + bl.h + MARGIN) { hit = true; break; }
+            }
+            if (!hit) walkable = true;
           }
         }
-        this.blocked[cy * COLS + cx] = b;
+        this.blocked[cy * COLS + cx] = walkable ? 0 : 1;
       }
     }
   }
@@ -88,13 +97,13 @@ export class NavGrid {
     }
   }
 
-  /** 从目标位置反向算全场代价（僵尸寻路：目标=存活玩家） */
+  /** 从目标位置反向算全场代价（僵尸寻路：目标=存活玩家）。源格被膨胀量吞掉时找最近可走格 */
   computeFlow(targets: { x: number; y: number }[]) {
     this.cost.fill(Infinity);
     const heap = new Heap();
     for (const t of targets) {
-      const i = this.at(t.x, t.y);
-      if (this.blocked[i]) continue;
+      const i = this.nearestFree(this.at(t.x, t.y));
+      if (i === -1) continue;
       if (this.cost[i] > 0) { this.cost[i] = 0; heap.push(0, i); }
     }
     while (heap.size) {
@@ -152,7 +161,7 @@ export class NavGrid {
       const dx = Math.abs((i % COLS) - gx), dy = Math.abs(Math.floor(i / COLS) - gy);
       return Math.max(dx, dy) + 0.4142 * Math.min(dx, dy);
     };
-    const g = new Float32Array(COLS * ROWS).fill(Infinity);
+    const g = new Float64Array(COLS * ROWS).fill(Infinity);
     const from = new Int32Array(COLS * ROWS).fill(-1);
     const closed = new Uint8Array(COLS * ROWS);
     const heap = new Heap();
