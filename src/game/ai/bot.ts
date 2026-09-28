@@ -47,8 +47,15 @@ export class Bot {
   private aimJitter = 0;
   private jitterT = 0;
   private orbitFlipT = 0;
+  /** 环绕方向（实例私有，初始取自性格参数） */
+  private orbit: 1 | -1;
+  /** 顺路捡箱的决策锁存：避免每帧掷随机数造成行为抖动 */
+  private scavT = 0;
+  private scavOK = false;
 
-  constructor(private g: GameAccess, private p: Player, private persona: Persona) {}
+  constructor(private g: GameAccess, private p: Player, private persona: Persona) {
+    this.orbit = persona.orbitDir;
+  }
 
   private nearest<T extends Unit>(list: T[], x: number, y: number): T | null {
     let best: T | null = null, bd = Infinity;
@@ -63,9 +70,9 @@ export class Bot {
     const inp: InputFrame = { mx: 0, my: 0, fire: false, prev: false, next: false };
     const p = this.p, g = this.g, per = this.persona;
     if (!p.alive) return inp;
-    this.repathT -= dt; this.jitterT -= dt; this.orbitFlipT -= dt;
+    this.repathT -= dt; this.jitterT -= dt; this.orbitFlipT -= dt; this.scavT -= dt;
     if (this.jitterT <= 0) { this.jitterT = 0.25; this.aimJitter = rand(-per.jitter, per.jitter); }
-    if (this.orbitFlipT <= 0) { this.orbitFlipT = rand(1.5, 3); per.orbitDir = (per.orbitDir * -1) as 1 | -1; }
+    if (this.orbitFlipT <= 0) { this.orbitFlipT = rand(1.5, 3); this.orbit = (this.orbit * -1) as 1 | -1; }
 
     const threats: Unit[] = [
       ...g.zombies.filter(z => !z.dead),
@@ -91,13 +98,13 @@ export class Bot {
       inp.mx = Math.cos(a); inp.my = Math.sin(a);
       return inp;
     }
-    const projectiles: { x: number; y: number; vx: number; vy: number }[] = [
-      ...g.fireballs.filter(f => !f.dead),
-      ...g.bullets.filter(b => !b.dead && b.kind === 'rocket' && b.owner !== p),
+    const projectiles: { x: number; y: number; vx: number; vy: number; range: number }[] = [
+      ...g.fireballs.filter(f => !f.dead).map(f => ({ x: f.x, y: f.y, vx: f.vx, vy: f.vy, range: 140 })),
+      ...g.bullets.filter(b => !b.dead && b.kind === 'rocket' && b.owner !== p).map(b => ({ x: b.x, y: b.y, vx: b.vx, vy: b.vy, range: 160 })),
     ];
     for (const fb of projectiles) {
       const d = Math.hypot(fb.x - p.x, fb.y - p.y);
-      if (d > 140) continue;
+      if (d > fb.range) continue;
       const toMe = Math.atan2(p.y - fb.y, p.x - fb.x);
       const vA = Math.atan2(fb.vy, fb.vx);
       let da = Math.abs(toMe - vA) % (Math.PI * 2);
@@ -123,10 +130,16 @@ export class Bot {
         const needCands = g.pickups.filter(pk => !pk.dead && ((hpNeed && pk.kind === 'med') || (ammoNeed && pk.kind === 'ammo')));
         wantPk = this.nearest(needCands, p.x, p.y);
       }
-      if (!wantPk && dThreat > per.engage && Math.random() < per.hunger) {
-        // 顺路捡：附近的箱子（满员也会折算得分）
-        const near = g.pickups.filter(pk => !pk.dead && dist2(pk.x, pk.y, p.x, p.y) < 180 * 180);
-        wantPk = this.nearest(near, p.x, p.y);
+      if (!wantPk && dThreat > per.engage) {
+        // 顺路捡：附近的箱子（满员也会折算得分）；决策锁存 1.2s，避免抖动
+        if (this.scavT <= 0) {
+          this.scavT = 1.2;
+          this.scavOK = Math.random() < per.hunger;
+        }
+        if (this.scavOK) {
+          const near = g.pickups.filter(pk => !pk.dead && dist2(pk.x, pk.y, p.x, p.y) < 180 * 180);
+          wantPk = this.nearest(near, p.x, p.y);
+        }
       }
     }
     if (wantPk) {
@@ -148,7 +161,7 @@ export class Bot {
     if (!target) { this.path = []; return inp; }
     const dT = Math.hypot(target.x - p.x, target.y - p.y);
     const aT = Math.atan2(target.y - p.y, target.x - p.x);
-    const orbit = aT + (Math.PI / 2) * per.orbitDir;
+    const orbit = aT + (Math.PI / 2) * this.orbit;
 
     if (hasLOS(p.x, p.y, target.x, target.y, g.blocks)) {
       this.path = [];

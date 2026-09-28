@@ -35,14 +35,29 @@ class SfxImpl {
     o.start(t0); o.stop(t0 + dur + 0.02);
   }
 
+  private noiseBufs = new Map<number, AudioBuffer>();
+
+  /** 噪声缓冲按时长缓存复用（后期密集击杀/爆炸时避免每次分配 AudioBuffer） */
+  private noiseBuf(dur: number): AudioBuffer | null {
+    if (!this.ac) return null;
+    const key = Math.round(dur * 100);
+    let buf = this.noiseBufs.get(key);
+    if (!buf) {
+      const len = Math.max(1, Math.floor(this.ac.sampleRate * dur));
+      buf = this.ac.createBuffer(1, len, this.ac.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+      this.noiseBufs.set(key, buf);
+    }
+    return buf;
+  }
+
   private noise(dur: number, vol: number, filterFreq: number, type: BiquadFilterType = 'lowpass', delay = 0) {
     if (this.muted || !this.ensure()) return;
     const ac = this.ac!;
+    const buf = this.noiseBuf(dur);
+    if (!buf) return;
     const t0 = ac.currentTime + delay;
-    const len = Math.max(1, Math.floor(ac.sampleRate * dur));
-    const buf = ac.createBuffer(1, len, ac.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
     const src = ac.createBufferSource(); src.buffer = buf;
     const f = ac.createBiquadFilter(); f.type = type; f.frequency.value = filterFreq;
     const g = ac.createGain();

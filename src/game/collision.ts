@@ -36,13 +36,13 @@ export function hitsWall(x: number, y: number, r: number, blocks: BlockDef[]) {
   return false;
 }
 
-/** 两点间是否被墙体挡住（演示/AI 用） */
+/** 两点间是否被墙体挡住（演示/AI 用）。步长 10、半径 4，避免贴角穿缝 */
 export function hasLOS(x1: number, y1: number, x2: number, y2: number, blocks: BlockDef[]) {
   const d = Math.hypot(x2 - x1, y2 - y1);
-  const steps = Math.ceil(d / 14);
+  const steps = Math.ceil(d / 10);
   for (let i = 1; i < steps; i++) {
     const t = i / steps;
-    if (hitsWall(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, 2, blocks)) return false;
+    if (hitsWall(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, 4, blocks)) return false;
   }
   return true;
 }

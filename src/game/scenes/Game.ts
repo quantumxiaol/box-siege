@@ -64,8 +64,10 @@ export class Game extends Phaser.Scene {
   private keyInput!: Input;
   private particles!: ParticlePool;
   private toasts!: Toasts;
-  /** 地面贴花（血迹/焦痕），Image 池，封顶 420 个，先进先出 */
+  /** 地面贴花（血迹/焦痕），环形复用 420 个 Image，不销毁不新建 */
   private decals: Phaser.GameObjects.Image[] = [];
+  private decalPtr = 0;
+  private static readonly DECAL_MAX = 420;
 
   private scoreText!: Phaser.GameObjects.Text;
   private multText!: Phaser.GameObjects.Text;
@@ -73,7 +75,7 @@ export class Game extends Phaser.Scene {
   private veil!: Phaser.GameObjects.Rectangle;
   private centerText!: Phaser.GameObjects.Text;
   private subText!: Phaser.GameObjects.Text;
-  private hud: { p: Player; label: Phaser.GameObjects.Text; hpBack: Phaser.GameObjects.Rectangle; hpFill: Phaser.GameObjects.Rectangle }[] = [];
+  private hud: { p: Player; label: Phaser.GameObjects.Text; hpBack: Phaser.GameObjects.Rectangle; hpFill: Phaser.GameObjects.Rectangle; lastLabel: string; lastW: number; lastBand: number }[] = [];
 
   constructor() {
     super('Game');
@@ -258,7 +260,7 @@ export class Game extends Phaser.Scene {
       }).setOrigin(0.5, 1).setDepth(950);
       const hpBack = this.add.rectangle(p.x, p.y - 32, 32, 5, 0x1a1a1a, 0.85).setDepth(950);
       const hpFill = this.add.rectangle(p.x - 15, p.y - 32, 30, 3, 0x6dd35f).setOrigin(0, 0.5).setDepth(951);
-      return { p, label, hpBack, hpFill };
+      return { p, label, hpBack, hpFill, lastLabel: '', lastW: -1, lastBand: -1 };
     });
 
     this.veil = this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0).setDepth(998);
@@ -288,44 +290,67 @@ export class Game extends Phaser.Scene {
     }
   }
 
+  private hudCache = { score: -1, mult: -1, wave: -1 };
+
   private syncHUD() {
-    this.scoreText.setText(String(this.score).padStart(13, '0'));
-    this.multText.setText(this.mult > 1 ? `x${this.mult}` : '');
-    this.multText.setScale(1 + (this.mult - 1) * 0.03);
-    this.waveText.setText(`第 ${this.wave} 波`);
+    // Text.setText 会重绘画布纹理，值没变就不动（性能）
+    if (this.score !== this.hudCache.score) {
+      this.hudCache.score = this.score;
+      this.scoreText.setText(String(this.score).padStart(13, '0'));
+    }
+    if (this.mult !== this.hudCache.mult) {
+      this.hudCache.mult = this.mult;
+      this.multText.setText(this.mult > 1 ? `x${this.mult}` : '');
+      this.multText.setScale(1 + (this.mult - 1) * 0.03);
+    }
+    if (this.wave !== this.hudCache.wave) {
+      this.hudCache.wave = this.wave;
+      this.waveText.setText(`第 ${this.wave} 波`);
+    }
     for (const h of this.hud) {
       const p = h.p;
       if (!p.alive) {
         const respawning = this.isVersus() && this.state === 'play';
         h.label.setVisible(respawning);
-        if (respawning) h.label.setText(`重生 ${Math.max(0, p.respawnT).toFixed(1)}`).setPosition(p.x, p.y - 40);
+        if (respawning) {
+          const txt = `重生 ${Math.max(0, p.respawnT).toFixed(1)}`;
+          if (txt !== h.lastLabel) { h.lastLabel = txt; h.label.setText(txt); }
+          h.label.setPosition(p.x, p.y - 40);
+        }
         h.hpBack.setVisible(false);
         h.hpFill.setVisible(false);
         continue;
       }
       const w = WEAPONS[p.weapons[p.cur]];
       const ammo = w.max ? (p.ammo[w.id] || 0) : -1;
-      h.label.setText(ammo >= 0 ? `${w.name}:${ammo}` : w.name).setPosition(p.x, p.y - 40).setVisible(true);
+      const txt = ammo >= 0 ? `${w.name}:${ammo}` : w.name;
+      if (txt !== h.lastLabel) { h.lastLabel = txt; h.label.setText(txt); }
+      h.label.setPosition(p.x, p.y - 40).setVisible(true);
       h.hpBack.setPosition(p.x, p.y - 32).setVisible(true);
       const ratio = clamp(p.hp / 100, 0, 1);
-      h.hpFill.setPosition(p.x - 15, p.y - 32)
-        .setSize(30 * ratio, 3)
-        .setFillStyle(ratio > 0.5 ? 0x6dd35f : ratio > 0.25 ? 0xf7a026 : 0xe04a3a)
-        .setVisible(true);
+      const wpx = Math.round(30 * ratio);
+      const band = ratio > 0.5 ? 0 : ratio > 0.25 ? 1 : 2;
+      if (wpx !== h.lastW || band !== h.lastBand) {
+        h.lastW = wpx; h.lastBand = band;
+        h.hpFill.setSize(wpx, 3)
+          .setFillStyle(band === 0 ? 0x6dd35f : band === 1 ? 0xf7a026 : 0xe04a3a);
+      }
+      h.hpFill.setPosition(p.x - 15, p.y - 32).setVisible(true);
     }
   }
 
   /* ---------------- 贴花 ---------------- */
 
   private stampDecal(tex: string, x: number, y: number, scale: number, alpha: number) {
-    const img = this.add.image(x, y, tex)
-      .setRotation(rand(0, TAU))
-      .setScale(scale)
-      .setAlpha(alpha)
-      .setDepth(2);
-    this.decals.push(img);
-    if (this.decals.length > 420) {
-      this.decals.shift()?.destroy();
+    if (this.decals.length < Game.DECAL_MAX) {
+      this.decals.push(
+        this.add.image(x, y, tex).setRotation(rand(0, TAU)).setScale(scale).setAlpha(alpha).setDepth(2),
+      );
+    } else {
+      // 复用最旧的一格，避免 destroy/create 搅动
+      const img = this.decals[this.decalPtr];
+      img.setTexture(tex).setPosition(x, y).setRotation(rand(0, TAU)).setScale(scale).setAlpha(alpha);
+      this.decalPtr = (this.decalPtr + 1) % Game.DECAL_MAX;
     }
   }
 
