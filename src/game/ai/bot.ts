@@ -77,7 +77,9 @@ export class Bot {
       : null;
 
     // 1) 军火规避：逃离身边的手雷/地雷，侧移躲迎面火球与火箭
-    const gr = this.nearest(g.grenades.filter(gr => !gr.dead && gr.owner !== p), p.x, p.y);
+    // 手雷不论谁扔的都会炸到自己，全躲（扔完立刻后撤也是正确操作）；
+    // 地雷不会感应自己，只躲别人的
+    const gr = this.nearest(g.grenades.filter(gr => !gr.dead), p.x, p.y);
     if (gr && dist2(gr.x, gr.y, p.x, p.y) < 130 * 130) {
       const a = Math.atan2(p.y - gr.y, p.x - gr.x);
       inp.mx = Math.cos(a); inp.my = Math.sin(a);
