@@ -1,4 +1,4 @@
-import { rand, dist2, GameMode } from '../config';
+import { rand, dist2, GameMode, W, H } from '../config';
 import { WEAPONS } from '../data/weapons';
 import { hasLOS } from '../collision';
 import type { InputFrame } from '../input';
@@ -52,6 +52,12 @@ export class Bot {
   /** 顺路捡箱的决策锁存：避免每帧掷随机数造成行为抖动 */
   private scavT = 0;
   private scavOK = false;
+  /** 卡死角检测：有输入但实际位移长期不足 → 触发突围（朝场地中心硬冲） */
+  private lastX = -1;
+  private lastY = -1;
+  private lastMoving = false;
+  private pinnedT = 0;
+  private escapeT = 0;
 
   constructor(private g: GameAccess, private p: Player, private persona: Persona) {
     this.orbit = persona.orbitDir;
@@ -67,12 +73,28 @@ export class Bot {
   }
 
   update(dt: number): InputFrame {
+    const p = this.p;
+    const inp = this.think(dt);
+    // 卡死角检测：上一帧想动却没怎么动 → 累计；超阈值触发突围
+    if (this.lastX >= 0 && this.lastMoving) {
+      const disp = Math.hypot(p.x - this.lastX, p.y - this.lastY);
+      if (disp < p.speed * dt * 0.25) this.pinnedT += dt;
+      else this.pinnedT = Math.max(0, this.pinnedT - dt * 2);
+    }
+    this.lastX = p.x; this.lastY = p.y;
+    this.lastMoving = Math.hypot(inp.mx, inp.my) > 0.3;
+    if (this.pinnedT > 0.45) { this.pinnedT = 0; this.escapeT = 0.7; }
+    return inp;
+  }
+
+  private think(dt: number): InputFrame {
     const inp: InputFrame = { mx: 0, my: 0, fire: false, prev: false, next: false };
     const p = this.p, g = this.g, per = this.persona;
     if (!p.alive) return inp;
     this.repathT -= dt; this.jitterT -= dt; this.orbitFlipT -= dt; this.scavT -= dt;
     if (this.jitterT <= 0) { this.jitterT = 0.25; this.aimJitter = rand(-per.jitter, per.jitter); }
     if (this.orbitFlipT <= 0) { this.orbitFlipT = rand(1.5, 3); this.orbit = (this.orbit * -1) as 1 | -1; }
+    this.escapeT = Math.max(0, this.escapeT - dt);
 
     const threats: Unit[] = [
       ...g.zombies.filter(z => !z.dead),
@@ -122,6 +144,14 @@ export class Bot {
 
     const threat = this.nearest(threats, p.x, p.y);
     const dThreat = threat ? Math.hypot(threat.x - p.x, threat.y - p.y) : Infinity;
+
+    // 突围：被顶死在死角（墙+怪封住风筝路线）时，朝场地中心硬冲穿过威胁
+    if (this.escapeT > 0) {
+      const a = Math.atan2(H / 2 - p.y, W / 2 - p.x);
+      inp.mx = Math.cos(a); inp.my = Math.sin(a);
+      this.aimAndFire(inp, threat, dThreat);
+      return inp;
+    }
 
     // 2) 捡补给：需要时主动去（安全距离外）；附近有箱子且怪不贴脸时顺路捡
     const hpNeed = p.hp < 70;
