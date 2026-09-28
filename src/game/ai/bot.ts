@@ -95,27 +95,33 @@ export class Bot {
     const threat = this.nearest(threats, p.x, p.y);
     const dThreat = threat ? Math.hypot(threat.x - p.x, threat.y - p.y) : Infinity;
 
-    // 2) 捡补给：安全（怪不贴脸）且需要时
-    const hpNeed = p.hp < 55;
+    // 2) 捡补给：需要时主动去（安全距离外）；附近有箱子且怪不贴脸时顺路捡
+    const hpNeed = p.hp < 70;
     const ammoNeed = this.ammoLow();
-    if (g.pickups.length && dThreat > per.safe + 30 && (hpNeed || ammoNeed)) {
-      const cands = g.pickups.filter(pk => !pk.dead && ((hpNeed && pk.kind === 'med') || (ammoNeed && pk.kind === 'ammo')));
-      if (cands.length && (hpNeed || Math.random() < per.hunger)) {
-        const pk = this.nearest(cands, p.x, p.y);
-        if (pk) {
-          if (hasLOS(p.x, p.y, pk.x, pk.y, g.blocks)) {
-            this.path = [];
-            const a = Math.atan2(pk.y - p.y, pk.x - p.x);
-            inp.mx = Math.cos(a); inp.my = Math.sin(a);
-          } else {
-            if (this.repathT <= 0 || !this.path.length) { this.repathT = 0.8; this.path = g.nav.astar(p.x, p.y, pk.x, pk.y); }
-            const mv = this.followPath();
-            if (mv) { inp.mx = mv.x; inp.my = mv.y; }
-          }
-          this.aimAndFire(inp, threat, dThreat);
-          return inp;
-        }
+    let wantPk: Pickup | null = null;
+    if (g.pickups.length) {
+      if ((hpNeed || ammoNeed) && dThreat > per.safe + 30) {
+        const needCands = g.pickups.filter(pk => !pk.dead && ((hpNeed && pk.kind === 'med') || (ammoNeed && pk.kind === 'ammo')));
+        wantPk = this.nearest(needCands, p.x, p.y);
       }
+      if (!wantPk && dThreat > per.engage && Math.random() < per.hunger) {
+        // 顺路捡：附近的箱子（满员也会折算得分）
+        const near = g.pickups.filter(pk => !pk.dead && dist2(pk.x, pk.y, p.x, p.y) < 180 * 180);
+        wantPk = this.nearest(near, p.x, p.y);
+      }
+    }
+    if (wantPk) {
+      if (hasLOS(p.x, p.y, wantPk.x, wantPk.y, g.blocks)) {
+        this.path = [];
+        const a = Math.atan2(wantPk.y - p.y, wantPk.x - p.x);
+        inp.mx = Math.cos(a); inp.my = Math.sin(a);
+      } else {
+        if (this.repathT <= 0 || !this.path.length) { this.repathT = 0.8; this.path = g.nav.astar(p.x, p.y, wantPk.x, wantPk.y); }
+        const mv = this.followPath();
+        if (mv) { inp.mx = mv.x; inp.my = mv.y; }
+      }
+      this.aimAndFire(inp, threat, dThreat);
+      return inp;
     }
 
     // 3) 风筝主循环：目标 = 近身僵尸（优先自保）否则敌对玩家
@@ -150,13 +156,12 @@ export class Bot {
     return inp;
   }
 
-  /** 弹药武器平均余量 < 35% 视为缺弹 */
+  /** 任一弹药武器余量 < 60% 视为该囤货了 */
   private ammoLow(): boolean {
     const p = this.p;
     const ammoWeapons = p.weapons.map(i => WEAPONS[i]).filter(w => w.max);
     if (!ammoWeapons.length) return false;
-    const total = ammoWeapons.reduce((s, w) => s + (p.ammo[w.id] || 0) / w.max!, 0);
-    return total / ammoWeapons.length < 0.35;
+    return ammoWeapons.some(w => (p.ammo[w.id] || 0) < w.max! * 0.6);
   }
 
   private followPath() {
